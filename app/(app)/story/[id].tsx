@@ -3,7 +3,7 @@ import {
   View, Text, ScrollView, TouchableOpacity,
   StyleSheet, ActivityIndicator, Alert, RefreshControl
 } from 'react-native'
-import { useLocalSearchParams, useRouter } from 'expo-router'
+import { useLocalSearchParams, useRouter, useNavigation } from 'expo-router'
 import { supabase } from '../../../lib/supabase'
 import { useAuthStore } from '../../../store/authStore'
 import { useRealtimeStory } from '../../../hooks/useRealtime'
@@ -13,6 +13,7 @@ export default function StoryScreen() {
   const { id } = useLocalSearchParams<{ id: string }>()
   const { user } = useAuthStore()
   const router = useRouter()
+  const navigation = useNavigation()
 
   const [story, setStory] = useState<Story | null>(null)
   const [paragraphs, setParagraphs] = useState<Paragraph[]>([])
@@ -29,6 +30,7 @@ export default function StoryScreen() {
       .from('stories').select('*').eq('id', id).single()
     if (!storyData) return
     setStory(storyData)
+    navigation.setOptions({ title: storyData.title })
 
     // Vérifie si membre
     const { data: memberData } = await supabase
@@ -47,20 +49,14 @@ export default function StoryScreen() {
     setCurrentTurn(turn)
 
     // A déjà proposé ce tour ?
-    const { data: myProposal } = await supabase
+    const { data: myProposalList } = await supabase
       .from('proposals').select('id')
       .eq('story_id', id).eq('author_id', user.id)
-      .eq('turn_number', turn).single()
-    const proposed = !!myProposal
+      .eq('turn_number', turn)
+    const proposed = (myProposalList?.length ?? 0) > 0
     setHasProposed(proposed)
 
     // Charge paragraphes selon mode aveugle
-    let query = supabase
-      .from('paragraphs')
-      .select('*, author:profiles(pseudo, avatar_url)')
-      .eq('story_id', id)
-      .order('turn_number', { ascending: true })
-
     if (storyData.blind_mode && member && !proposed) {
       const { data: blindParas } = await supabase
         .from('paragraphs')
@@ -70,7 +66,11 @@ export default function StoryScreen() {
         .limit(2)
       setParagraphs((blindParas ?? []).reverse())
     } else {
-      const { data: allParas } = await query
+      const { data: allParas } = await supabase
+        .from('paragraphs')
+        .select('*, author:profiles(pseudo, avatar_url)')
+        .eq('story_id', id)
+        .order('turn_number', { ascending: true })
       setParagraphs(allParas ?? [])
     }
 
@@ -79,12 +79,7 @@ export default function StoryScreen() {
 
   useEffect(() => { loadAll() }, [loadAll])
 
-  useRealtimeStory(
-    id,
-    () => loadAll(),
-    () => loadAll(),
-    () => loadAll()
-  )
+  useRealtimeStory(id, () => loadAll(), () => loadAll(), () => loadAll())
 
   const handleJoin = async () => {
     setJoining(true)
@@ -92,10 +87,12 @@ export default function StoryScreen() {
       .from('story_members')
       .insert({ story_id: id, user_id: user.id })
     setJoining(false)
-    if (error) return Alert.alert('Erreur', error.message)
+    if (error && error.code !== '23505') {
+      return Alert.alert('Erreur', error.message)
+    }
     setIsMember(true)
     loadAll()
-  }
+}
 
   const onRefresh = async () => {
     setRefreshing(true)
@@ -128,8 +125,7 @@ export default function StoryScreen() {
             colors={['#7F77DD']} />
         }
       >
-        {/* Header */}
-        <Text style={styles.title}>{story.title}</Text>
+        {/* Badges */}
         <View style={styles.badges}>
           {story.blind_mode && (
             <View style={styles.badge}>
@@ -149,39 +145,45 @@ export default function StoryScreen() {
         {story.blind_mode && isMember && !hasProposed && story.status === 'open' && (
           <View style={styles.blindWarning}>
             <Text style={styles.blindWarningText}>
-              👁 Mode aveugle activé — tu ne vois que les 2 derniers paragraphes.
-              Propose ta suite pour lire l'histoire complète.
+              👁 Mode aveugle — tu ne vois que les 2 derniers paragraphes.
+              Propose ta suite pour tout lire.
             </Text>
           </View>
         )}
 
         {/* Paragraphes */}
-        {paragraphs.map((para, index) => (
-          <View key={para.id} style={styles.paraBlock}>
-            <View style={styles.paraHeader}>
-              <View style={styles.paraAvatar}>
-                <Text style={styles.paraAvatarText}>
-                  {(para.author as any)?.pseudo?.[0]?.toUpperCase() ?? '?'}
-                </Text>
-              </View>
-              <Text style={styles.paraAuthor}>
-                {(para.author as any)?.pseudo ?? 'Anonyme'}
-              </Text>
-              {para.turn_number === 0 && (
-                <View style={styles.openingBadge}>
-                  <Text style={styles.openingBadgeText}>Ouverture</Text>
-                </View>
-              )}
-            </View>
-            <Text style={styles.paraContent}>{para.content}</Text>
-            {index < paragraphs.length - 1 && <View style={styles.divider} />}
+        {paragraphs.length === 0 ? (
+          <View style={styles.emptyPara}>
+            <Text style={styles.emptyParaText}>Aucun paragraphe pour l'instant.</Text>
           </View>
-        ))}
+        ) : (
+          paragraphs.map((para, index) => (
+            <View key={para.id} style={styles.paraBlock}>
+              <View style={styles.paraHeader}>
+                <View style={styles.paraAvatar}>
+                  <Text style={styles.paraAvatarText}>
+                    {(para.author as any)?.pseudo?.[0]?.toUpperCase() ?? '?'}
+                  </Text>
+                </View>
+                <Text style={styles.paraAuthor}>
+                  {(para.author as any)?.pseudo ?? 'Anonyme'}
+                </Text>
+                {para.turn_number === 0 && (
+                  <View style={styles.openingBadge}>
+                    <Text style={styles.openingBadgeText}>Ouverture</Text>
+                  </View>
+                )}
+              </View>
+              <Text style={styles.paraContent}>{para.content}</Text>
+              {index < paragraphs.length - 1 && <View style={styles.divider} />}
+            </View>
+          ))
+        )}
 
-        <View style={{ height: 100 }} />
+        <View style={{ height: 120 }} />
       </ScrollView>
 
-      {/* Actions en bas */}
+      {/* Barre d'action */}
       {!isMember && story.status === 'open' && (
         <View style={styles.actionBar}>
           <TouchableOpacity
@@ -218,6 +220,14 @@ export default function StoryScreen() {
           </TouchableOpacity>
         </View>
       )}
+
+      {isMember && story.status === 'done' && (
+        <View style={styles.actionBar}>
+          <View style={styles.doneBanner}>
+            <Text style={styles.doneText}>✅ Histoire terminée — bonne lecture !</Text>
+          </View>
+        </View>
+      )}
     </View>
   )
 }
@@ -227,8 +237,7 @@ const styles = StyleSheet.create({
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   errorText: { color: '#999', fontSize: 16 },
   scroll: { padding: 20 },
-  title: { fontSize: 24, fontWeight: '700', color: '#1A1A2E', marginBottom: 12 },
-  badges: { flexDirection: 'row', gap: 8, marginBottom: 20 },
+  badges: { flexDirection: 'row', gap: 8, marginBottom: 16 },
   badge: {
     backgroundColor: '#EEEDFE', paddingHorizontal: 10,
     paddingVertical: 4, borderRadius: 10
@@ -239,6 +248,8 @@ const styles = StyleSheet.create({
     marginBottom: 20, borderWidth: 1, borderColor: '#FFE082'
   },
   blindWarningText: { fontSize: 13, color: '#8B6914', lineHeight: 18 },
+  emptyPara: { alignItems: 'center', paddingVertical: 40 },
+  emptyParaText: { color: '#AAA', fontSize: 15 },
   paraBlock: { marginBottom: 8 },
   paraHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 10 },
   paraAvatar: {
@@ -264,8 +275,15 @@ const styles = StyleSheet.create({
     backgroundColor: '#7F77DD', padding: 16,
     borderRadius: 12, alignItems: 'center'
   },
-  actionBtnSecondary: { backgroundColor: '#fff', borderWidth: 1, borderColor: '#7F77DD' },
+  actionBtnSecondary: {
+    backgroundColor: '#fff', borderWidth: 1, borderColor: '#7F77DD'
+  },
   actionBtnText: { color: '#fff', fontWeight: '700', fontSize: 16 },
   actionBtnTextSecondary: { color: '#7F77DD', fontWeight: '700', fontSize: 16 },
   btnDisabled: { opacity: 0.6 },
+  doneBanner: {
+    backgroundColor: '#E8F5E9', padding: 14,
+    borderRadius: 12, alignItems: 'center'
+  },
+  doneText: { color: '#388E3C', fontWeight: '600', fontSize: 15 },
 })

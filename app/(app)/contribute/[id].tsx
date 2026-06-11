@@ -37,12 +37,12 @@ export default function Contribute() {
 
     setLoading(true)
 
-    const { data: existing } = await supabase
-      .from('proposals').select('id')
-      .eq('story_id', id).eq('author_id', user.id)
-      .eq('turn_number', currentTurn).single()
+   const { data: existingList } = await supabase
+  .from('proposals').select('id')
+  .eq('story_id', id).eq('author_id', user.id)
+  .eq('turn_number', currentTurn)
 
-    if (existing) {
+    if (existingList && existingList.length > 0) {
       setLoading(false)
       return Alert.alert('Déjà proposé', 'Tu as déjà une proposition ce tour.')
     }

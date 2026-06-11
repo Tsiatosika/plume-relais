@@ -1,4 +1,4 @@
-import { Tabs } from 'expo-router'
+import { Tabs, useNavigation } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
 
 export default function AppLayout() {
@@ -35,10 +35,10 @@ export default function AppLayout() {
           ),
         }}
       />
-      <Tabs.Screen name="story/[id]" options={{ href: null }} />
-      <Tabs.Screen name="story/create" options={{ href: null }} />
-      <Tabs.Screen name="story/vote/[id]" options={{ href: null }} />
-      <Tabs.Screen name="contribute/[id]" options={{ href: null }} />
+      <Tabs.Screen name="story/[id]" options={{ href: null, title: '' }} />
+      <Tabs.Screen name="story/create" options={{ href: null, title: 'Nouvelle histoire' }} />
+      <Tabs.Screen name="story/vote/[id]" options={{ href: null, title: 'Voter' }} />
+      <Tabs.Screen name="contribute/[id]" options={{ href: null, title: 'Proposer une suite' }} />
     </Tabs>
   )
 }

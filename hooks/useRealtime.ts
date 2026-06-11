@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 
 export function useRealtimeStory(
@@ -7,11 +7,19 @@ export function useRealtimeStory(
   onProposal: () => void,
   onVote: () => void
 ) {
+  const channelRef = useRef<any>(null)
+
   useEffect(() => {
     if (!storyId) return
 
+    // Nettoie le channel précédent s'il existe
+    if (channelRef.current) {
+      supabase.removeChannel(channelRef.current)
+      channelRef.current = null
+    }
+
     const channel = supabase
-      .channel(`story-${storyId}`)
+      .channel(`story-${storyId}-${Date.now()}`)
       .on('postgres_changes', {
         event: 'INSERT',
         schema: 'public',
@@ -32,6 +40,13 @@ export function useRealtimeStory(
       }, onVote)
       .subscribe()
 
-    return () => { supabase.removeChannel(channel) }
+    channelRef.current = channel
+
+    return () => {
+      if (channelRef.current) {
+        supabase.removeChannel(channelRef.current)
+        channelRef.current = null
+      }
+    }
   }, [storyId])
 }
