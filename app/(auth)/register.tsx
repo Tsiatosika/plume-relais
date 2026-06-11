@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import {
   View, Text, TextInput, TouchableOpacity,
-  StyleSheet, Alert, KeyboardAvoidingView, Platform
+  StyleSheet, KeyboardAvoidingView, Platform, ActivityIndicator
 } from 'react-native'
 import { useRouter } from 'expo-router'
 import { supabase } from '../../lib/supabase'
@@ -14,16 +14,21 @@ export default function Register() {
   const router = useRouter()
 
   const handleRegister = async () => {
-    if (!email || !password || !pseudo)
-      return Alert.alert('Remplis tous les champs')
-    if (password.length < 6)
-      return Alert.alert('Mot de passe trop court', 'Minimum 6 caractères')
+    if (!email || !password || !pseudo) {
+      window.alert('Remplis tous les champs')
+      return
+    }
+    if (password.length < 6) {
+      window.alert('Mot de passe trop court — minimum 6 caractères')
+      return
+    }
 
     setLoading(true)
     const { data, error } = await supabase.auth.signUp({ email, password })
     if (error) {
       setLoading(false)
-      return Alert.alert('Erreur', error.message)
+      window.alert('Erreur : ' + error.message)
+      return
     }
 
     if (data.user) {
@@ -32,11 +37,12 @@ export default function Register() {
         .insert({ id: data.user.id, pseudo })
       if (profileError) {
         setLoading(false)
-        return Alert.alert('Erreur profil', profileError.message)
+        window.alert('Erreur profil : ' + profileError.message)
+        return
       }
     }
     setLoading(false)
-    Alert.alert('Compte créé !', 'Tu peux maintenant te connecter.')
+    window.alert('Compte créé ! Tu peux maintenant te connecter.')
     router.replace('/(auth)/login')
   }
 
@@ -75,9 +81,10 @@ export default function Register() {
         onPress={handleRegister}
         disabled={loading}
       >
-        <Text style={styles.btnText}>
-          {loading ? 'Création...' : 'Créer mon compte'}
-        </Text>
+        {loading
+          ? <ActivityIndicator color="#fff" />
+          : <Text style={styles.btnText}>Créer mon compte</Text>
+        }
       </TouchableOpacity>
 
       <TouchableOpacity onPress={() => router.back()}>

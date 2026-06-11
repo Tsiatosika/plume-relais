@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import {
   View, Text, TextInput, TouchableOpacity,
-  ScrollView, StyleSheet, Alert, ActivityIndicator
+  ScrollView, StyleSheet, ActivityIndicator
 } from 'react-native'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { supabase } from '../../../lib/supabase'
@@ -18,33 +18,36 @@ export default function Contribute() {
 
   useEffect(() => {
     const loadContext = async () => {
-      const { data: lastPara } = await supabase
+      const { data: paraList } = await supabase
         .from('paragraphs').select('turn_number, content')
         .eq('story_id', id)
         .order('turn_number', { ascending: false })
-        .limit(1).single()
-      if (lastPara) {
-        setCurrentTurn(lastPara.turn_number + 1)
-        setContext(lastPara.content)
+        .limit(1)
+      if (paraList && paraList.length > 0) {
+        setCurrentTurn(paraList[0].turn_number + 1)
+        setContext(paraList[0].content)
       }
     }
     loadContext()
   }, [id])
 
   const handleSubmit = async () => {
-    if (content.trim().length < 20)
-      return Alert.alert('Trop court', 'Écris au moins 20 caractères.')
+    if (content.trim().length < 20) {
+      window.alert('Écris au moins 20 caractères.')
+      return
+    }
 
     setLoading(true)
 
-   const { data: existingList } = await supabase
-  .from('proposals').select('id')
-  .eq('story_id', id).eq('author_id', user.id)
-  .eq('turn_number', currentTurn)
+    const { data: existingList } = await supabase
+      .from('proposals').select('id')
+      .eq('story_id', id).eq('author_id', user.id)
+      .eq('turn_number', currentTurn)
 
     if (existingList && existingList.length > 0) {
       setLoading(false)
-      return Alert.alert('Déjà proposé', 'Tu as déjà une proposition ce tour.')
+      window.alert('Tu as déjà une proposition ce tour.')
+      return
     }
 
     const { error } = await supabase.from('proposals').insert({
@@ -55,11 +58,13 @@ export default function Contribute() {
     })
 
     setLoading(false)
-    if (error) return Alert.alert('Erreur', error.message)
+    if (error) {
+      window.alert('Erreur : ' + error.message)
+      return
+    }
 
-    Alert.alert('Proposition envoyée !', 'Attends que les autres votent.', [
-      { text: 'OK', onPress: () => router.back() }
-    ])
+    window.alert('Proposition envoyée ! Attends les votes.')
+    router.back()
   }
 
   return (

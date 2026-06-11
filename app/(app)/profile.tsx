@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import {
   View, Text, TouchableOpacity, StyleSheet,
-  Alert, ActivityIndicator, ScrollView
+  ActivityIndicator, ScrollView
 } from 'react-native'
 import { supabase } from '../../lib/supabase'
 import { useAuthStore } from '../../store/authStore'
@@ -30,10 +30,8 @@ export default function Profile() {
   }, [])
 
   const handleSignOut = () => {
-    Alert.alert('Déconnexion', 'Tu veux vraiment te déconnecter ?', [
-      { text: 'Annuler', style: 'cancel' },
-      { text: 'Déconnexion', style: 'destructive', onPress: signOut },
-    ])
+    const confirmed = window.confirm('Tu veux vraiment te déconnecter ?')
+    if (confirmed) signOut()
   }
 
   if (loading) {
@@ -46,7 +44,6 @@ export default function Profile() {
 
   return (
     <ScrollView style={styles.container}>
-      {/* Avatar */}
       <View style={styles.avatarSection}>
         <View style={styles.avatar}>
           <Text style={styles.avatarText}>
@@ -57,7 +54,6 @@ export default function Profile() {
         <Text style={styles.email}>{user?.email}</Text>
       </View>
 
-      {/* Stats */}
       <View style={styles.statsRow}>
         <View style={styles.statCard}>
           <Text style={styles.statNumber}>{stats.total}</Text>
@@ -73,7 +69,6 @@ export default function Profile() {
         </View>
       </View>
 
-      {/* Badges réputation */}
       {(profile?.reputation ?? 0) >= 5 && (
         <View style={styles.badgeSection}>
           <Text style={styles.badgeSectionTitle}>Badges</Text>
@@ -104,7 +99,9 @@ export default function Profile() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F8F8FC' },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  avatarSection: { alignItems: 'center', paddingVertical: 36, backgroundColor: '#fff' },
+  avatarSection: {
+    alignItems: 'center', paddingVertical: 36, backgroundColor: '#fff'
+  },
   avatar: {
     width: 80, height: 80, borderRadius: 40,
     backgroundColor: '#EEEDFE', alignItems: 'center',
@@ -113,9 +110,7 @@ const styles = StyleSheet.create({
   avatarText: { fontSize: 32, fontWeight: '700', color: '#7F77DD' },
   pseudo: { fontSize: 22, fontWeight: '700', color: '#1A1A2E', marginBottom: 4 },
   email: { fontSize: 14, color: '#AAA' },
-  statsRow: {
-    flexDirection: 'row', padding: 16, gap: 12
-  },
+  statsRow: { flexDirection: 'row', padding: 16, gap: 12 },
   statCard: {
     flex: 1, backgroundColor: '#fff', borderRadius: 12,
     padding: 16, alignItems: 'center',

@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import {
   View, Text, TextInput, Switch, ScrollView,
-  TouchableOpacity, StyleSheet, Alert, ActivityIndicator
+  TouchableOpacity, StyleSheet, ActivityIndicator
 } from 'react-native'
 import { useRouter } from 'expo-router'
 import { supabase } from '../../../lib/supabase'
@@ -19,9 +19,18 @@ export default function CreateStory() {
   const router = useRouter()
 
   const handleCreate = async () => {
-    if (!title.trim()) return Alert.alert('Erreur', 'Le titre est obligatoire')
-    if (!opening.trim()) return Alert.alert('Erreur', 'Le paragraphe d\'ouverture est obligatoire')
-    if (opening.trim().length < 20) return Alert.alert('Erreur', 'L\'ouverture est trop courte (min. 20 caractères)')
+    if (!title.trim()) {
+      window.alert('Le titre est obligatoire')
+      return
+    }
+    if (!opening.trim()) {
+      window.alert("Le paragraphe d'ouverture est obligatoire")
+      return
+    }
+    if (opening.trim().length < 20) {
+      window.alert("L'ouverture est trop courte (min. 20 caractères)")
+      return
+    }
 
     setLoading(true)
 
@@ -41,7 +50,8 @@ export default function CreateStory() {
 
     if (error) {
       setLoading(false)
-      return Alert.alert('Erreur', error.message)
+      window.alert('Erreur : ' + error.message)
+      return
     }
 
     await supabase.from('paragraphs').insert({
