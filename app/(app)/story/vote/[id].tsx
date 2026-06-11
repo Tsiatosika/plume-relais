@@ -18,47 +18,62 @@ export default function VoteScreen() {
   const [myVote, setMyVote] = useState<string | null>(null)
   const [myProposalId, setMyProposalId] = useState<string | null>(null)
   const [currentTurn, setCurrentTurn] = useState(1)
+  const [creatorId, setCreatorId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [voting, setVoting] = useState(false)
+  const [closing, setClosing] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
 
   const loadProposals = async () => {
-    const { data: lastPara } = await supabase
-      .from('paragraphs').select('turn_number')
-      .eq('story_id', id)
-      .order('turn_number', { ascending: false })
-      .limit(1).single()
-    const turn = (lastPara?.turn_number ?? 0) + 1
-    setCurrentTurn(turn)
+  // Récupère l'histoire pour savoir le créateur
+  const { data: story } = await supabase
+    .from('stories').select('creator_id').eq('id', id).single()
+  if (story) setCreatorId(story.creator_id)
 
-    const { data } = await supabase
-      .from('proposals')
-      .select('*, author:profiles(pseudo)')
-      .eq('story_id', id)
-      .eq('turn_number', turn)
-      .order('votes_count', { ascending: false })
-    setProposals(data ?? [])
+  // Dernier tour — sans .single() pour éviter l'erreur si vide
+  const { data: paraList } = await supabase
+    .from('paragraphs').select('turn_number')
+    .eq('story_id', id)
+    .order('turn_number', { ascending: false })
+    .limit(1)
+  const turn = paraList && paraList.length > 0 ? paraList[0].turn_number + 1 : 1
+  setCurrentTurn(turn)
 
-    const mine = data?.find(p => p.author_id === user.id)
-    if (mine) setMyProposalId(mine.id)
+  // Charge les propositions
+  const { data } = await supabase
+    .from('proposals')
+    .select('*, author:profiles(pseudo)')
+    .eq('story_id', id)
+    .eq('turn_number', turn)
+    .order('votes_count', { ascending: false })
+  setProposals(data ?? [])
 
-    const { data: voteData } = await supabase
-      .from('votes').select('proposal_id')
-      .eq('story_id', id).eq('voter_id', user.id)
-      .eq('turn_number', turn).single()
-    if (voteData) setMyVote(voteData.proposal_id)
+  // Ma proposition
+  const mine = (data ?? []).find(p => p.author_id === user?.id)
+  if (mine) setMyProposalId(mine.id)
+  else setMyProposalId(null)
 
-    setLoading(false)
+  // Mon vote ce tour
+  const { data: voteList } = await supabase
+    .from('votes').select('proposal_id')
+    .eq('story_id', id).eq('voter_id', user.id)
+    .eq('turn_number', turn)
+  if (voteList && voteList.length > 0) {
+    setMyVote(voteList[0].proposal_id)
+  } else {
+    setMyVote(null)
   }
+
+  setLoading(false)
+}
 
   useEffect(() => { loadProposals() }, [id])
 
   useRealtimeStory(id, loadProposals, loadProposals, loadProposals)
 
   const handleVote = async (proposalId: string) => {
-    if (myVote) return Alert.alert('Déjà voté', 'Tu as déjà voté ce tour.')
-    if (proposalId === myProposalId)
-      return Alert.alert('Interdit', 'Tu ne peux pas voter pour ta propre proposition.')
+    if (myVote) return
+    if (proposalId === myProposalId) return
 
     setVoting(true)
     const { error } = await supabase.from('votes').insert({
@@ -72,11 +87,32 @@ export default function VoteScreen() {
       await supabase.rpc('increment_votes', { proposal_id: proposalId })
       setMyVote(proposalId)
       loadProposals()
-    } else {
-      Alert.alert('Erreur', error.message)
     }
     setVoting(false)
   }
+
+  const handleCloseTurn = async () => {
+      if (proposals.length === 0) return
+
+      const confirmed = window.confirm(
+        'Clore le tour ? La proposition avec le plus de votes sera ajoutée à l\'histoire.'
+      )
+      if (!confirmed) return
+
+      setClosing(true)
+      const { error } = await supabase.rpc('close_turn', {
+        p_story_id: id,
+        p_turn_number: currentTurn,
+      })
+      setClosing(false)
+
+      if (error) {
+        window.alert('Erreur : ' + error.message)
+      } else {
+        window.alert('Tour clôturé ! La suite gagnante a été ajoutée.')
+        router.back()
+      }
+    }
 
   const onRefresh = async () => {
     setRefreshing(true)
@@ -92,6 +128,8 @@ export default function VoteScreen() {
     )
   }
 
+  const isCreator = user.id === creatorId
+
   return (
     <ScrollView
       style={styles.container}
@@ -100,11 +138,29 @@ export default function VoteScreen() {
           colors={['#7F77DD']} />
       }
     >
-      <Text style={styles.title}>Tour {currentTurn} — {proposals.length} proposition(s)</Text>
+      <Text style={styles.title}>
+        Tour {currentTurn} — {proposals.length} proposition(s)
+      </Text>
+
+      {/* Bouton clore le tour — visible uniquement par le créateur */}
+      {isCreator && proposals.length > 0 && (
+        <TouchableOpacity
+          style={[styles.closeBtn, closing && styles.btnDisabled]}
+          onPress={handleCloseTurn}
+          disabled={closing}
+        >
+          {closing
+            ? <ActivityIndicator color="#fff" size="small" />
+            : <Text style={styles.closeBtnText}>🏁 Clore ce tour</Text>
+          }
+        </TouchableOpacity>
+      )}
 
       {myVote && (
         <View style={styles.votedBanner}>
-          <Text style={styles.votedText}>✅ Tu as voté ce tour. Les votes se mettent à jour en direct.</Text>
+          <Text style={styles.votedText}>
+            ✅ Tu as voté ce tour. Les votes se mettent à jour en direct.
+          </Text>
         </View>
       )}
 
@@ -140,13 +196,11 @@ export default function VoteScreen() {
 
               <Text style={styles.proposalText}>{proposal.content}</Text>
 
-              {/* Barre de progression */}
               <View style={styles.progressBar}>
                 <View style={[styles.progressFill, { width: `${pct}%` as any }]} />
               </View>
               <Text style={styles.pctText}>{pct}%</Text>
 
-              {/* Bouton voter */}
               {!myVote && !isMyProposal && (
                 <TouchableOpacity
                   style={[styles.voteBtn, voting && styles.btnDisabled]}
@@ -180,6 +234,11 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F8F8FC', padding: 16 },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   title: { fontSize: 18, fontWeight: '700', color: '#1A1A2E', marginBottom: 16 },
+  closeBtn: {
+    backgroundColor: '#FF6B6B', padding: 14, borderRadius: 12,
+    alignItems: 'center', marginBottom: 16
+  },
+  closeBtnText: { color: '#fff', fontWeight: '700', fontSize: 15 },
   votedBanner: {
     backgroundColor: '#E8F5E9', borderRadius: 10, padding: 12,
     marginBottom: 16, borderWidth: 1, borderColor: '#A5D6A7'
