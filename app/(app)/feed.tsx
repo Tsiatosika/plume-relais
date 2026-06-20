@@ -73,6 +73,12 @@ export default function Feed() {
     return '🟢 En cours'
   }
 
+  const getEmptyMessage = () => {
+    if (tab === 'open') return 'Aucune histoire ouverte pour le moment.'
+    if (tab === 'mine') return "Tu ne participes à aucune histoire."
+    return 'Aucune histoire terminée.'
+  }
+
   const tabs: { key: Tab; label: string }[] = [
     { key: 'open', label: 'Rejoindre' },
     { key: 'mine', label: 'Mes histoires' },
@@ -96,28 +102,23 @@ export default function Feed() {
         ))}
       </View>
 
-      {/* Liste */}
       {loading ? (
         <ActivityIndicator style={{ marginTop: 40 }} color="#7F77DD" size="large" />
       ) : (
         <FlatList
           data={stories}
           keyExtractor={item => item.id}
-          contentContainerStyle={stories.length === 0 && styles.emptyContainer}
+          contentContainerStyle={stories.length === 0 ? styles.emptyContainer : { paddingBottom: 100 }}
           refreshControl={
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh}
-              colors={['#7F77DD']} />
+              colors={['#7F77DD']} tintColor="#7F77DD" />
           }
           ListEmptyComponent={
             <View style={styles.empty}>
-              <Text style={styles.emptyIcon}>📖</Text>
-              <Text style={styles.emptyText}>
-                {tab === 'open'
-                  ? 'Aucune histoire ouverte pour l\'instant'
-                  : tab === 'mine'
-                  ? 'Tu ne participes à aucune histoire'
-                  : 'Aucune histoire terminée'}
+              <Text style={styles.emptyIcon}>
+                {tab === 'open' ? '📖' : tab === 'mine' ? '✍️' : '🏁'}
               </Text>
+              <Text style={styles.emptyText}>{getEmptyMessage()}</Text>
               {tab === 'open' && (
                 <TouchableOpacity
                   style={styles.emptyBtn}
@@ -126,12 +127,21 @@ export default function Feed() {
                   <Text style={styles.emptyBtnText}>Créer la première !</Text>
                 </TouchableOpacity>
               )}
+              {tab === 'mine' && (
+                <TouchableOpacity
+                  style={styles.emptyBtn}
+                  onPress={() => setTab('open')}
+                >
+                  <Text style={styles.emptyBtnText}>Rejoindre une histoire</Text>
+                </TouchableOpacity>
+              )}
             </View>
           }
           renderItem={({ item }) => (
             <TouchableOpacity
               style={styles.card}
               onPress={() => router.push(`/(app)/story/${item.id}`)}
+              activeOpacity={0.7}
             >
               <View style={styles.cardHeader}>
                 <Text style={styles.storyTitle} numberOfLines={2}>
@@ -139,7 +149,7 @@ export default function Feed() {
                 </Text>
                 {item.blind_mode && (
                   <View style={styles.blindBadge}>
-                    <Text style={styles.blindText}>👁 Aveugle</Text>
+                    <Text style={styles.blindText}>👁</Text>
                   </View>
                 )}
               </View>
@@ -158,6 +168,7 @@ export default function Feed() {
       <TouchableOpacity
         style={styles.fab}
         onPress={() => router.push('/(app)/story/create')}
+        activeOpacity={0.8}
       >
         <Text style={styles.fabText}>+</Text>
       </TouchableOpacity>
@@ -183,7 +194,9 @@ const styles = StyleSheet.create({
   card: {
     margin: 12, marginBottom: 0, backgroundColor: '#fff',
     borderRadius: 14, padding: 16,
-    borderWidth: 1, borderColor: '#EBEBEB'
+    borderWidth: 1, borderColor: '#EBEBEB',
+    shadowColor: '#000', shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05, shadowRadius: 4, elevation: 1
   },
   cardHeader: {
     flexDirection: 'row', justifyContent: 'space-between',
@@ -196,19 +209,24 @@ const styles = StyleSheet.create({
     backgroundColor: '#EEEDFE', paddingHorizontal: 8,
     paddingVertical: 3, borderRadius: 10, marginLeft: 8
   },
-  blindText: { fontSize: 11, color: '#7F77DD' },
+  blindText: { fontSize: 14 },
   cardFooter: { flexDirection: 'row', justifyContent: 'space-between' },
   statusText: { fontSize: 12, color: '#666' },
   dateText: { fontSize: 12, color: '#AAA' },
   emptyContainer: { flex: 1 },
-  empty: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 40 },
+  empty: {
+    flex: 1, alignItems: 'center', justifyContent: 'center',
+    padding: 40, marginTop: 60
+  },
   emptyIcon: { fontSize: 48, marginBottom: 16 },
-  emptyText: { fontSize: 15, color: '#999', textAlign: 'center', marginBottom: 20 },
+  emptyText: {
+    fontSize: 15, color: '#999', textAlign: 'center', marginBottom: 20
+  },
   emptyBtn: {
     backgroundColor: '#7F77DD', paddingHorizontal: 24,
     paddingVertical: 12, borderRadius: 10
   },
-  emptyBtnText: { color: '#fff', fontWeight: '600' },
+  emptyBtnText: { color: '#fff', fontWeight: '600', fontSize: 14 },
   fab: {
     position: 'absolute', bottom: 24, right: 24,
     width: 56, height: 56, borderRadius: 28,
