@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import {
   View, Text, FlatList, TouchableOpacity,
-  StyleSheet, RefreshControl, ActivityIndicator
+  StyleSheet, RefreshControl, ActivityIndicator,
+  Animated
 } from 'react-native'
 import { useRouter } from 'expo-router'
 import { supabase } from '../../lib/supabase'
@@ -9,6 +10,126 @@ import { useAuthStore } from '../../store/authStore'
 import { Story } from '../../types'
 
 type Tab = 'open' | 'mine' | 'done'
+
+function AnimatedStoryCard({
+  story,
+  index,
+  onPress,
+}: {
+  story: Story
+  index: number
+  onPress: () => void
+}) {
+  const translateY = useRef(new Animated.Value(30)).current
+  const opacity = useRef(new Animated.Value(0)).current
+  const scale = useRef(new Animated.Value(1)).current
+
+  useEffect(() => {
+    Animated.parallel([
+      Animated.timing(opacity, {
+        toValue: 1,
+        duration: 300,
+        delay: index * 80,
+        useNativeDriver: true,
+      }),
+      Animated.spring(translateY, {
+        toValue: 0,
+        delay: index * 80,
+        useNativeDriver: true,
+        tension: 80,
+        friction: 10,
+      }),
+    ]).start()
+  }, [])
+
+  const getStatusLabel = (s: Story) => {
+    if (s.status === 'done') return '✅ Terminée'
+    if (s.status === 'voting') return '🗳️ Vote en cours'
+    return '🟢 En cours'
+  }
+
+  const onPressIn = () => {
+    Animated.spring(scale, {
+      toValue: 0.97,
+      useNativeDriver: true,
+      tension: 200,
+      friction: 10,
+    }).start()
+  }
+
+  const onPressOut = () => {
+    Animated.spring(scale, {
+      toValue: 1,
+      useNativeDriver: true,
+      tension: 200,
+      friction: 10,
+    }).start()
+  }
+
+  return (
+    <Animated.View
+      style={[
+        cardStyles.wrapper,
+        {
+          opacity,
+          transform: [{ translateY }, { scale }],
+        },
+      ]}
+    >
+      <TouchableOpacity
+        style={cardStyles.card}
+        onPress={onPress}
+        activeOpacity={1}
+        onPressIn={onPressIn}
+        onPressOut={onPressOut}
+      >
+        <View style={cardStyles.cardHeader}>
+          <Text style={cardStyles.storyTitle} numberOfLines={2}>
+            {story.title}
+          </Text>
+          {story.blind_mode && (
+            <View style={cardStyles.blindBadge}>
+              <Text style={cardStyles.blindText}>👁</Text>
+            </View>
+          )}
+        </View>
+        <View style={cardStyles.cardFooter}>
+          <Text style={cardStyles.statusText}>{getStatusLabel(story)}</Text>
+          <Text style={cardStyles.dateText}>
+            {new Date(story.created_at).toLocaleDateString('fr-FR')}
+          </Text>
+        </View>
+      </TouchableOpacity>
+    </Animated.View>
+  )
+}
+
+const cardStyles = StyleSheet.create({
+  wrapper: {
+    marginHorizontal: 12, marginTop: 12,
+  },
+  card: {
+    backgroundColor: '#fff', borderRadius: 14, padding: 16,
+    borderWidth: 1, borderColor: '#EBEBEB',
+    shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06, shadowRadius: 6, elevation: 2
+  },
+  cardHeader: {
+    flexDirection: 'row', justifyContent: 'space-between',
+    alignItems: 'flex-start', marginBottom: 10
+  },
+  storyTitle: {
+    fontSize: 16, fontWeight: '600', color: '#1A1A2E', flex: 1
+  },
+  blindBadge: {
+    backgroundColor: '#EEEDFE', paddingHorizontal: 8,
+    paddingVertical: 3, borderRadius: 10, marginLeft: 8
+  },
+  blindText: { fontSize: 14 },
+  cardFooter: { flexDirection: 'row', justifyContent: 'space-between' },
+  statusText: { fontSize: 12, color: '#666' },
+  dateText: { fontSize: 12, color: '#AAA' },
+})
 
 export default function Feed() {
   const [stories, setStories] = useState<Story[]>([])
@@ -67,12 +188,6 @@ export default function Feed() {
     setRefreshing(false)
   }
 
-  const getStatusLabel = (story: Story) => {
-    if (story.status === 'done') return '✅ Terminée'
-    if (story.status === 'voting') return '🗳️ Vote en cours'
-    return '🟢 En cours'
-  }
-
   const getEmptyMessage = () => {
     if (tab === 'open') return 'Aucune histoire ouverte pour le moment.'
     if (tab === 'mine') return "Tu ne participes à aucune histoire."
@@ -87,7 +202,6 @@ export default function Feed() {
 
   return (
     <View style={styles.container}>
-      {/* Tabs */}
       <View style={styles.tabBar}>
         {tabs.map(t => (
           <TouchableOpacity
@@ -108,10 +222,16 @@ export default function Feed() {
         <FlatList
           data={stories}
           keyExtractor={item => item.id}
-          contentContainerStyle={stories.length === 0 ? styles.emptyContainer : { paddingBottom: 100 }}
+          contentContainerStyle={
+            stories.length === 0 ? styles.emptyContainer : { paddingBottom: 100 }
+          }
           refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={onRefresh}
-              colors={['#7F77DD']} tintColor="#7F77DD" />
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              colors={['#7F77DD']}
+              tintColor="#7F77DD"
+            />
           }
           ListEmptyComponent={
             <View style={styles.empty}>
@@ -137,34 +257,16 @@ export default function Feed() {
               )}
             </View>
           }
-          renderItem={({ item }) => (
-            <TouchableOpacity
-              style={styles.card}
+          renderItem={({ item, index }) => (
+            <AnimatedStoryCard
+              story={item}
+              index={index}
               onPress={() => router.push(`/(app)/story/${item.id}`)}
-              activeOpacity={0.7}
-            >
-              <View style={styles.cardHeader}>
-                <Text style={styles.storyTitle} numberOfLines={2}>
-                  {item.title}
-                </Text>
-                {item.blind_mode && (
-                  <View style={styles.blindBadge}>
-                    <Text style={styles.blindText}>👁</Text>
-                  </View>
-                )}
-              </View>
-              <View style={styles.cardFooter}>
-                <Text style={styles.statusText}>{getStatusLabel(item)}</Text>
-                <Text style={styles.dateText}>
-                  {new Date(item.created_at).toLocaleDateString('fr-FR')}
-                </Text>
-              </View>
-            </TouchableOpacity>
+            />
           )}
         />
       )}
 
-      {/* Bouton créer */}
       <TouchableOpacity
         style={styles.fab}
         onPress={() => router.push('/(app)/story/create')}
@@ -191,28 +293,6 @@ const styles = StyleSheet.create({
   tabActive: { backgroundColor: '#7F77DD', borderColor: '#7F77DD' },
   tabText: { fontSize: 12, color: '#666', fontWeight: '500' },
   tabTextActive: { color: '#fff' },
-  card: {
-    margin: 12, marginBottom: 0, backgroundColor: '#fff',
-    borderRadius: 14, padding: 16,
-    borderWidth: 1, borderColor: '#EBEBEB',
-    shadowColor: '#000', shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05, shadowRadius: 4, elevation: 1
-  },
-  cardHeader: {
-    flexDirection: 'row', justifyContent: 'space-between',
-    alignItems: 'flex-start', marginBottom: 10
-  },
-  storyTitle: {
-    fontSize: 16, fontWeight: '600', color: '#1A1A2E', flex: 1
-  },
-  blindBadge: {
-    backgroundColor: '#EEEDFE', paddingHorizontal: 8,
-    paddingVertical: 3, borderRadius: 10, marginLeft: 8
-  },
-  blindText: { fontSize: 14 },
-  cardFooter: { flexDirection: 'row', justifyContent: 'space-between' },
-  statusText: { fontSize: 12, color: '#666' },
-  dateText: { fontSize: 12, color: '#AAA' },
   emptyContainer: { flex: 1 },
   empty: {
     flex: 1, alignItems: 'center', justifyContent: 'center',
