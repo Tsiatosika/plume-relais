@@ -17,6 +17,7 @@ export type Story = {
   status: 'open' | 'voting' | 'done'
   cover_url: string | null
   created_at: string
+  turn_started_at: string | null
 }
 
 export type Paragraph = {

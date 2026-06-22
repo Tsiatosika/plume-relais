@@ -1,13 +1,66 @@
 import { useEffect, useState, useCallback } from 'react'
 import {
   View, Text, ScrollView, TouchableOpacity,
-  StyleSheet, ActivityIndicator, Alert, RefreshControl
+  StyleSheet, ActivityIndicator, RefreshControl
 } from 'react-native'
 import { useLocalSearchParams, useRouter, useNavigation } from 'expo-router'
 import { supabase } from '../../../lib/supabase'
 import { useAuthStore } from '../../../store/authStore'
 import { useRealtimeStory } from '../../../hooks/useRealtime'
+import { useCountdown } from '../../../hooks/useCountdown'
 import { Story, Paragraph } from '../../../types'
+
+function TurnTimer({
+  startedAt,
+  durationMinutes,
+}: {
+  startedAt: string | null
+  durationMinutes: number
+}) {
+  const { timeLeft, isExpired, pct } = useCountdown(startedAt, durationMinutes)
+
+  if (!startedAt) return null
+
+  const barColor = pct > 50 ? '#7F77DD' : pct > 20 ? '#FFA726' : '#EF5350'
+
+  return (
+    <View style={timerStyles.container}>
+      <View style={timerStyles.header}>
+        <Text style={timerStyles.label}>⏱ Temps restant ce tour</Text>
+        <Text style={[timerStyles.time, isExpired && timerStyles.timeExpired]}>
+          {timeLeft}
+        </Text>
+      </View>
+      <View style={timerStyles.bar}>
+        <View
+          style={[
+            timerStyles.fill,
+            { width: `${pct}%` as any, backgroundColor: barColor },
+          ]}
+        />
+      </View>
+    </View>
+  )
+}
+
+const timerStyles = StyleSheet.create({
+  container: {
+    backgroundColor: '#F8F8FC', borderRadius: 12, padding: 14,
+    marginBottom: 16, borderWidth: 1, borderColor: '#EBEBEB'
+  },
+  header: {
+    flexDirection: 'row', justifyContent: 'space-between',
+    alignItems: 'center', marginBottom: 8
+  },
+  label: { fontSize: 13, color: '#666', fontWeight: '500' },
+  time: { fontSize: 15, fontWeight: '700', color: '#7F77DD' },
+  timeExpired: { color: '#EF5350' },
+  bar: {
+    height: 6, backgroundColor: '#E0E0E0',
+    borderRadius: 3, overflow: 'hidden'
+  },
+  fill: { height: 6, borderRadius: 3 },
+})
 
 export default function StoryScreen() {
   const { id } = useLocalSearchParams<{ id: string }>()
@@ -25,30 +78,26 @@ export default function StoryScreen() {
   const [joining, setJoining] = useState(false)
 
   const loadAll = useCallback(async () => {
-    // Charge l'histoire
     const { data: storyData } = await supabase
       .from('stories').select('*').eq('id', id).single()
     if (!storyData) return
     setStory(storyData)
     navigation.setOptions({ title: storyData.title })
 
-    // Vérifie si membre
     const { data: memberData } = await supabase
       .from('story_members')
       .select('*').eq('story_id', id).eq('user_id', user.id).single()
     const member = !!memberData
     setIsMember(member)
 
-    // Dernier tour
-    const { data: lastPara } = await supabase
+    const { data: paraList } = await supabase
       .from('paragraphs').select('turn_number')
       .eq('story_id', id)
       .order('turn_number', { ascending: false })
-      .limit(1).single()
-    const turn = (lastPara?.turn_number ?? 0) + 1
+      .limit(1)
+    const turn = paraList && paraList.length > 0 ? paraList[0].turn_number + 1 : 1
     setCurrentTurn(turn)
 
-    // A déjà proposé ce tour ?
     const { data: myProposalList } = await supabase
       .from('proposals').select('id')
       .eq('story_id', id).eq('author_id', user.id)
@@ -56,7 +105,6 @@ export default function StoryScreen() {
     const proposed = (myProposalList?.length ?? 0) > 0
     setHasProposed(proposed)
 
-    // Charge paragraphes selon mode aveugle
     if (storyData.blind_mode && member && !proposed) {
       const { data: blindParas } = await supabase
         .from('paragraphs')
@@ -88,11 +136,12 @@ export default function StoryScreen() {
       .insert({ story_id: id, user_id: user.id })
     setJoining(false)
     if (error && error.code !== '23505') {
-      return Alert.alert('Erreur', error.message)
+      window.alert('Erreur : ' + error.message)
+      return
     }
     setIsMember(true)
     loadAll()
-}
+  }
 
   const onRefresh = async () => {
     setRefreshing(true)
@@ -140,6 +189,14 @@ export default function StoryScreen() {
             </Text>
           </View>
         </View>
+
+        {/* Compteur de temps */}
+        {story.status === 'open' && isMember && (
+          <TurnTimer
+            startedAt={story.turn_started_at}
+            durationMinutes={story.turn_duration_minutes}
+          />
+        )}
 
         {/* Avertissement mode aveugle */}
         {story.blind_mode && isMember && !hasProposed && story.status === 'open' && (
@@ -216,7 +273,9 @@ export default function StoryScreen() {
             style={[styles.actionBtn, styles.actionBtnSecondary]}
             onPress={() => router.push(`/(app)/story/vote/${id}`)}
           >
-            <Text style={styles.actionBtnTextSecondary}>🗳️ Voir les propositions & voter</Text>
+            <Text style={styles.actionBtnTextSecondary}>
+              🗳️ Voir les propositions & voter
+            </Text>
           </TouchableOpacity>
         </View>
       )}
