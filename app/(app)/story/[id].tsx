@@ -76,13 +76,26 @@ export default function StoryScreen() {
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [joining, setJoining] = useState(false)
+  const [sharing, setSharing] = useState(false)
 
   const loadAll = useCallback(async () => {
     const { data: storyData } = await supabase
       .from('stories').select('*').eq('id', id).single()
     if (!storyData) return
     setStory(storyData)
-    navigation.setOptions({ title: storyData.title })
+    navigation.setOptions({
+      title: storyData.title,
+      headerRight: storyData.status === 'done' ? () => (
+        <TouchableOpacity
+          onPress={() => setSharing(true)}
+          style={{ marginRight: 16 }}
+        >
+          <Text style={{ color: '#7F77DD', fontSize: 14, fontWeight: '600' }}>
+            Partager
+          </Text>
+        </TouchableOpacity>
+      ) : undefined,
+    })
 
     const { data: memberData } = await supabase
       .from('story_members')
@@ -141,6 +154,50 @@ export default function StoryScreen() {
     }
     setIsMember(true)
     loadAll()
+  }
+
+  const handleShareLink = async () => {
+    const url = `${window.location.origin}/story/${id}`
+    try {
+      await navigator.clipboard.writeText(url)
+      window.alert('🔗 Lien copié !\n' + url)
+    } catch {
+      window.alert('Lien de l\'histoire :\n' + url)
+    }
+    setSharing(false)
+  }
+
+  const handleShareText = async () => {
+    if (!story || paragraphs.length === 0) return
+
+    const lines: string[] = []
+    lines.push(`✒️ ${story.title}`)
+    lines.push('━━━━━━━━━━━━━━━━━━━━')
+    lines.push('')
+
+    paragraphs.forEach((para, index) => {
+      const author = (para.author as any)?.pseudo ?? 'Anonyme'
+      if (index === 0) {
+        lines.push(`[ Ouverture par ${author} ]`)
+      } else {
+        lines.push(`[ Tour ${para.turn_number} — ${author} ]`)
+      }
+      lines.push(para.content)
+      lines.push('')
+    })
+
+    lines.push('━━━━━━━━━━━━━━━━━━━━')
+    lines.push(`Écrit à plusieurs mains sur Plume Relais`)
+
+    const fullText = lines.join('\n')
+
+    try {
+      await navigator.clipboard.writeText(fullText)
+      window.alert('📋 Histoire copiée ! Tu peux la coller où tu veux.')
+    } catch {
+      window.alert('Impossible de copier automatiquement.')
+    }
+    setSharing(false)
   }
 
   const onRefresh = async () => {
@@ -237,6 +294,37 @@ export default function StoryScreen() {
           ))
         )}
 
+        {/* Boutons partage pour histoires terminées */}
+        {story.status === 'done' && (
+          <View style={styles.shareSection}>
+            <Text style={styles.shareSectionTitle}>Partager cette histoire</Text>
+            <TouchableOpacity
+              style={styles.shareBtn}
+              onPress={handleShareLink}
+            >
+              <Text style={styles.shareBtnIcon}>🔗</Text>
+              <View>
+                <Text style={styles.shareBtnTitle}>Copier le lien</Text>
+                <Text style={styles.shareBtnSub}>Partage l'URL de l'histoire</Text>
+              </View>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.shareBtn, styles.shareBtnSecondary]}
+              onPress={handleShareText}
+            >
+              <Text style={styles.shareBtnIcon}>📋</Text>
+              <View>
+                <Text style={[styles.shareBtnTitle, { color: '#7F77DD' }]}>
+                  Copier le texte complet
+                </Text>
+                <Text style={styles.shareBtnSub}>
+                  Tous les paragraphes avec les auteurs
+                </Text>
+              </View>
+            </TouchableOpacity>
+          </View>
+        )}
+
         <View style={{ height: 120 }} />
       </ScrollView>
 
@@ -325,6 +413,25 @@ const styles = StyleSheet.create({
   openingBadgeText: { fontSize: 11, color: '#388E3C' },
   paraContent: { fontSize: 16, color: '#1A1A2E', lineHeight: 26 },
   divider: { height: 1, backgroundColor: '#F0F0F0', marginVertical: 20 },
+  shareSection: {
+    marginTop: 32, padding: 16, backgroundColor: '#F8F8FC',
+    borderRadius: 16, borderWidth: 1, borderColor: '#EBEBEB'
+  },
+  shareSectionTitle: {
+    fontSize: 13, fontWeight: '600', color: '#999',
+    textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 12
+  },
+  shareBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    backgroundColor: '#7F77DD', padding: 14,
+    borderRadius: 12, marginBottom: 10
+  },
+  shareBtnSecondary: {
+    backgroundColor: '#fff', borderWidth: 1, borderColor: '#7F77DD'
+  },
+  shareBtnIcon: { fontSize: 24 },
+  shareBtnTitle: { fontSize: 15, fontWeight: '600', color: '#fff' },
+  shareBtnSub: { fontSize: 12, color: 'rgba(255,255,255,0.8)', marginTop: 2 },
   actionBar: {
     position: 'absolute', bottom: 0, left: 0, right: 0,
     padding: 16, backgroundColor: '#fff',
