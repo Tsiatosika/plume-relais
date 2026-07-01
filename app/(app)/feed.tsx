@@ -143,6 +143,11 @@ export default function Feed() {
     setLoading(true)
     let data: Story[] = []
 
+    if (!user) {         
+      setLoading(false)
+      return
+    }
+    
     if (tab === 'open') {
       const { data: result } = await supabase
         .from('stories')

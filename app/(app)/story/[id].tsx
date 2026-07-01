@@ -79,6 +79,7 @@ export default function StoryScreen() {
   const [sharing, setSharing] = useState(false)
 
   const loadAll = useCallback(async () => {
+    if (!user) return 
     const { data: storyData } = await supabase
       .from('stories').select('*').eq('id', id).single()
     if (!storyData) return
@@ -136,9 +137,9 @@ export default function StoryScreen() {
     }
 
     setLoading(false)
-  }, [id, user.id])
+  }, [id, user?.id])
 
-  useEffect(() => { loadAll() }, [loadAll])
+  useEffect(() => { if (user) loadAll() }, [loadAll])
 
   useRealtimeStory(id, () => loadAll(), () => loadAll(), () => loadAll())
 

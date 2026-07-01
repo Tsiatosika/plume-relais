@@ -14,6 +14,7 @@ export default function Profile() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+    if (!user) return 
     const loadStats = async () => {
       const { count: total } = await supabase
         .from('proposals').select('*', { count: 'exact', head: true })
@@ -27,7 +28,7 @@ export default function Profile() {
       setLoading(false)
     }
     loadStats()
-  }, [])
+  }, [user])
 
   const handleSignOut = () => {
     const confirmed = window.confirm('Tu veux vraiment te déconnecter ?')
