@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import {
   View, Text, ScrollView, TouchableOpacity,
-  StyleSheet, ActivityIndicator, RefreshControl
+  StyleSheet, ActivityIndicator, RefreshControl, Alert
 } from 'react-native'
 import { useLocalSearchParams, useRouter, useNavigation } from 'expo-router'
 import { supabase } from '../../../lib/supabase'
@@ -150,7 +150,7 @@ export default function StoryScreen() {
       .insert({ story_id: id, user_id: user.id })
     setJoining(false)
     if (error && error.code !== '23505') {
-      window.alert('Erreur : ' + error.message)
+      Alert.alert('Erreur', error.message)
       return
     }
     setIsMember(true)
@@ -161,15 +161,18 @@ export default function StoryScreen() {
     const url = `${window.location.origin}/story/${id}`
     try {
       await navigator.clipboard.writeText(url)
-      window.alert('🔗 Lien copié !\n' + url)
+      Alert.alert('🔗 Lien copié !', url)
     } catch {
-      window.alert('Lien de l\'histoire :\n' + url)
+      Alert.alert('Lien de l\'histoire', url)
     }
     setSharing(false)
   }
 
   const handleShareText = async () => {
-    if (!story || paragraphs.length === 0) return
+    if (!story || paragraphs.length === 0) {
+      Alert.alert('Info', 'Cette histoire est vide.')
+      return
+    }
 
     const lines: string[] = []
     lines.push(`✒️ ${story.title}`)
@@ -194,9 +197,9 @@ export default function StoryScreen() {
 
     try {
       await navigator.clipboard.writeText(fullText)
-      window.alert('📋 Histoire copiée ! Tu peux la coller où tu veux.')
+      Alert.alert('📋 Histoire copiée !', 'Tu peux la coller où tu veux.')
     } catch {
-      window.alert('Impossible de copier automatiquement.')
+      Alert.alert('Info', 'Impossible de copier automatiquement.')
     }
     setSharing(false)
   }

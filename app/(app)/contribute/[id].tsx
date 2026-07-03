@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import {
   View, Text, TextInput, TouchableOpacity,
-  ScrollView, StyleSheet, ActivityIndicator
+  ScrollView, StyleSheet, ActivityIndicator, Alert
 } from 'react-native'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { supabase } from '../../../lib/supabase'
@@ -33,7 +33,7 @@ export default function Contribute() {
 
   const handleSubmit = async () => {
     if (content.trim().length < 20) {
-      window.alert('Écris au moins 20 caractères.')
+      Alert.alert('Erreur', 'Écris au moins 20 caractères.')
       return
     }
 
@@ -46,7 +46,7 @@ export default function Contribute() {
 
     if (existingList && existingList.length > 0) {
       setLoading(false)
-      window.alert('Tu as déjà une proposition ce tour.')
+      Alert.alert('Erreur', 'Tu as déjà une proposition ce tour.')
       return
     }
 
@@ -59,11 +59,11 @@ export default function Contribute() {
 
     setLoading(false)
     if (error) {
-      window.alert('Erreur : ' + error.message)
+      Alert.alert('Erreur', error.message)
       return
     }
 
-    window.alert('Proposition envoyée ! Attends les votes.')
+    Alert.alert('Succès', 'Proposition envoyée ! Attends les votes.')
     router.back()
   }
 

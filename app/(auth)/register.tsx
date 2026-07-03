@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import {
   View, Text, TextInput, TouchableOpacity,
-  StyleSheet, KeyboardAvoidingView, Platform, ActivityIndicator
+  StyleSheet, KeyboardAvoidingView, Platform, ActivityIndicator, Alert
 } from 'react-native'
 import { useRouter } from 'expo-router'
 import { supabase } from '../../lib/supabase'
@@ -15,11 +15,11 @@ export default function Register() {
 
   const handleRegister = async () => {
     if (!email || !password || !pseudo) {
-      window.alert('Remplis tous les champs')
+      Alert.alert('Erreur', 'Remplis tous les champs')
       return
     }
     if (password.length < 6) {
-      window.alert('Mot de passe trop court — minimum 6 caractères')
+      Alert.alert('Erreur', 'Mot de passe trop court — minimum 6 caractères')
       return
     }
 
@@ -27,7 +27,7 @@ export default function Register() {
     const { data, error } = await supabase.auth.signUp({ email, password })
     if (error) {
       setLoading(false)
-      window.alert('Erreur : ' + error.message)
+      Alert.alert('Erreur', error.message)
       return
     }
 
@@ -37,12 +37,12 @@ export default function Register() {
         .insert({ id: data.user.id, pseudo })
       if (profileError) {
         setLoading(false)
-        window.alert('Erreur profil : ' + profileError.message)
+        Alert.alert('Erreur', 'Erreur profil : ' + profileError.message)
         return
       }
     }
     setLoading(false)
-    window.alert('Compte créé ! Tu peux maintenant te connecter.')
+    Alert.alert('Succès', 'Compte créé ! Tu peux maintenant te connecter.')
     router.replace('/(auth)/login')
   }
 

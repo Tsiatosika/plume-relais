@@ -34,19 +34,21 @@ export default function CreateStory() {
 
     setLoading(true)
 
-    const { data: story, error } = await supabase
-      .from('stories')
-      .insert({
-        title: title.trim(),
-        creator_id: user.id,
-        visibility: isPrivate ? 'private' : 'public',
-        blind_mode: blindMode,
-        max_contributions: parseInt(maxContrib) || 10,
-        turn_duration_minutes: parseInt(turnDuration) || 60,
-        status: 'open',
-      })
-      .select()
-      .single()
+    // Dans handleCreate, mettre à jour le statut correctement
+  const { data: story, error } = await supabase
+    .from('stories')
+    .insert({
+      title: title.trim(),
+      creator_id: user.id,
+      visibility: isPrivate ? 'private' : 'public',
+      blind_mode: blindMode,
+      max_contributions: parseInt(maxContrib) || 10,
+      turn_duration_minutes: parseInt(turnDuration) || 60,
+      status: 'open', // Commence en 'open' pour permettre les contributions
+      turn_started_at: new Date().toISOString(), // Démarrer le timer immédiatement
+    })
+    .select()
+    .single()
 
     if (error) {
       setLoading(false)

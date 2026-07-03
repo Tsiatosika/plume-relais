@@ -2,7 +2,7 @@ import { useEffect, useState, useRef } from 'react'
 import {
   View, Text, FlatList, TouchableOpacity,
   StyleSheet, RefreshControl, ActivityIndicator,
-  Animated
+  Animated, Platform
 } from 'react-native'
 import { useRouter } from 'expo-router'
 import { supabase } from '../../lib/supabase'
@@ -25,22 +25,25 @@ function AnimatedStoryCard({
   const scale = useRef(new Animated.Value(1)).current
 
   useEffect(() => {
+    // Pour le Web, désactiver useNativeDriver
+    const isWeb = Platform.OS === 'web'
+    
     Animated.parallel([
       Animated.timing(opacity, {
         toValue: 1,
         duration: 300,
         delay: index * 80,
-        useNativeDriver: true,
+        useNativeDriver: !isWeb,  // Désactiver pour le Web
       }),
       Animated.spring(translateY, {
         toValue: 0,
         delay: index * 80,
-        useNativeDriver: true,
+        useNativeDriver: !isWeb,  // Désactiver pour le Web
         tension: 80,
         friction: 10,
       }),
     ]).start()
-  }, [])
+  }, [index])
 
   const getStatusLabel = (s: Story) => {
     if (s.status === 'done') return '✅ Terminée'
@@ -49,18 +52,21 @@ function AnimatedStoryCard({
   }
 
   const onPressIn = () => {
+    // Pour le Web, désactiver useNativeDriver
+    const isWeb = Platform.OS === 'web'
     Animated.spring(scale, {
       toValue: 0.97,
-      useNativeDriver: true,
+      useNativeDriver: !isWeb,  // Désactiver pour le Web
       tension: 200,
       friction: 10,
     }).start()
   }
 
   const onPressOut = () => {
+    const isWeb = Platform.OS === 'web'
     Animated.spring(scale, {
       toValue: 1,
-      useNativeDriver: true,
+      useNativeDriver: !isWeb,  // Désactiver pour le Web
       tension: 200,
       friction: 10,
     }).start()
@@ -87,11 +93,18 @@ function AnimatedStoryCard({
           <Text style={cardStyles.storyTitle} numberOfLines={2}>
             {story.title}
           </Text>
-          {story.blind_mode && (
-            <View style={cardStyles.blindBadge}>
-              <Text style={cardStyles.blindText}>👁</Text>
-            </View>
-          )}
+          <View style={cardStyles.badgeContainer}>
+            {story.blind_mode && (
+              <View style={cardStyles.blindBadge}>
+                <Text style={cardStyles.blindText}>👁</Text>
+              </View>
+            )}
+            {story.visibility === 'private' && (
+              <View style={cardStyles.privateBadge}>
+                <Text style={cardStyles.privateText}>🔒</Text>
+              </View>
+            )}
+          </View>
         </View>
         <View style={cardStyles.cardFooter}>
           <Text style={cardStyles.statusText}>{getStatusLabel(story)}</Text>
@@ -106,27 +119,57 @@ function AnimatedStoryCard({
 
 const cardStyles = StyleSheet.create({
   wrapper: {
-    marginHorizontal: 12, marginTop: 12,
+    marginHorizontal: 12,
+    marginTop: 12,
   },
   card: {
-    backgroundColor: '#fff', borderRadius: 14, padding: 16,
-    borderWidth: 1, borderColor: '#EBEBEB',
-    shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06, shadowRadius: 6, elevation: 2
+    backgroundColor: '#fff',
+    borderRadius: 14,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#EBEBEB',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 6,
+    elevation: 2,
   },
   cardHeader: {
-    flexDirection: 'row', justifyContent: 'space-between',
-    alignItems: 'flex-start', marginBottom: 10
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 10,
   },
   storyTitle: {
-    fontSize: 16, fontWeight: '600', color: '#1A1A2E', flex: 1
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#1A1A2E',
+    flex: 1,
+    marginRight: 8,
+  },
+  badgeContainer: {
+    flexDirection: 'row',
+    gap: 4,
   },
   blindBadge: {
-    backgroundColor: '#EEEDFE', paddingHorizontal: 8,
-    paddingVertical: 3, borderRadius: 10, marginLeft: 8
+    backgroundColor: '#EEEDFE',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 10,
   },
   blindText: { fontSize: 14 },
-  cardFooter: { flexDirection: 'row', justifyContent: 'space-between' },
+  privateBadge: {
+    backgroundColor: '#FFF3E0',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 10,
+  },
+  privateText: { fontSize: 14 },
+  cardFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
   statusText: { fontSize: 12, color: '#666' },
   dateText: { fontSize: 12, color: '#AAA' },
 })
@@ -140,52 +183,80 @@ export default function Feed() {
   const router = useRouter()
 
   const loadStories = async () => {
-    setLoading(true)
-    let data: Story[] = []
-
-    if (!user) {         
+    if (!user) {
       setLoading(false)
       return
     }
-    
-    if (tab === 'open') {
-      const { data: result } = await supabase
-        .from('stories')
-        .select('*')
-        .eq('status', 'open')
-        .eq('visibility', 'public')
-        .order('created_at', { ascending: false })
-      data = result ?? []
 
-    } else if (tab === 'mine') {
-      const { data: members } = await supabase
-        .from('story_members')
-        .select('story_id')
-        .eq('user_id', user.id)
-      const ids = members?.map(m => m.story_id) ?? []
-      if (ids.length > 0) {
-        const { data: result } = await supabase
+    setLoading(true)
+    let data: Story[] = []
+
+    try {
+      if (tab === 'open') {
+        // Histoires ouvertes et publiques
+        const { data: result, error } = await supabase
           .from('stories')
           .select('*')
-          .in('id', ids)
+          .eq('status', 'open')
+          .eq('visibility', 'public')
           .order('created_at', { ascending: false })
-        data = result ?? []
-      }
 
-    } else {
-      const { data: result } = await supabase
-        .from('stories')
-        .select('*')
-        .eq('status', 'done')
-        .order('created_at', { ascending: false })
-      data = result ?? []
+        if (error) {
+          console.error('Erreur chargement histoires ouvertes:', error)
+        } else {
+          data = result ?? []
+        }
+      } else if (tab === 'mine') {
+        // Histoires auxquelles l'utilisateur participe
+        const { data: members, error: memberError } = await supabase
+          .from('story_members')
+          .select('story_id')
+          .eq('user_id', user.id)
+
+        if (memberError) {
+          console.error('Erreur chargement membres:', memberError)
+        } else {
+          const ids = members?.map(m => m.story_id) ?? []
+          if (ids.length > 0) {
+            const { data: result, error } = await supabase
+              .from('stories')
+              .select('*')
+              .in('id', ids)
+              .order('created_at', { ascending: false })
+
+            if (error) {
+              console.error('Erreur chargement mes histoires:', error)
+            } else {
+              data = result ?? []
+            }
+          }
+        }
+      } else {
+        // Histoires terminées (publiques ou créées par l'utilisateur)
+        const { data: result, error } = await supabase
+          .from('stories')
+          .select('*')
+          .eq('status', 'done')
+          .or(`visibility.eq.public,creator_id.eq.${user.id}`)
+          .order('created_at', { ascending: false })
+
+        if (error) {
+          console.error('Erreur chargement histoires terminées:', error)
+        } else {
+          data = result ?? []
+        }
+      }
+    } catch (error) {
+      console.error('Erreur inattendue:', error)
     }
 
     setStories(data)
     setLoading(false)
   }
 
-  useEffect(() => { loadStories() }, [tab])
+  useEffect(() => {
+    loadStories()
+  }, [tab])
 
   const onRefresh = async () => {
     setRefreshing(true)
@@ -199,11 +270,48 @@ export default function Feed() {
     return 'Aucune histoire terminée.'
   }
 
+  const getEmptyIcon = () => {
+    if (tab === 'open') return '📖'
+    if (tab === 'mine') return '✍️'
+    return '🏁'
+  }
+
   const tabs: { key: Tab; label: string }[] = [
     { key: 'open', label: 'Rejoindre' },
     { key: 'mine', label: 'Mes histoires' },
     { key: 'done', label: 'Terminées' },
   ]
+
+  const renderEmptyState = () => (
+    <View style={styles.empty}>
+      <Text style={styles.emptyIcon}>{getEmptyIcon()}</Text>
+      <Text style={styles.emptyText}>{getEmptyMessage()}</Text>
+      {tab === 'open' && (
+        <TouchableOpacity
+          style={styles.emptyBtn}
+          onPress={() => router.push('/(app)/story/create')}
+        >
+          <Text style={styles.emptyBtnText}>Créer la première !</Text>
+        </TouchableOpacity>
+      )}
+      {tab === 'mine' && (
+        <TouchableOpacity
+          style={styles.emptyBtn}
+          onPress={() => setTab('open')}
+        >
+          <Text style={styles.emptyBtnText}>Rejoindre une histoire</Text>
+        </TouchableOpacity>
+      )}
+    </View>
+  )
+
+  const renderItem = ({ item, index }: { item: Story; index: number }) => (
+    <AnimatedStoryCard
+      story={item}
+      index={index}
+      onPress={() => router.push(`/(app)/story/${item.id}`)}
+    />
+  )
 
   return (
     <View style={styles.container}>
@@ -222,13 +330,15 @@ export default function Feed() {
       </View>
 
       {loading ? (
-        <ActivityIndicator style={{ marginTop: 40 }} color="#7F77DD" size="large" />
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator color="#7F77DD" size="large" />
+        </View>
       ) : (
         <FlatList
           data={stories}
           keyExtractor={item => item.id}
           contentContainerStyle={
-            stories.length === 0 ? styles.emptyContainer : { paddingBottom: 100 }
+            stories.length === 0 ? styles.emptyContainer : styles.listContainer
           }
           refreshControl={
             <RefreshControl
@@ -238,37 +348,9 @@ export default function Feed() {
               tintColor="#7F77DD"
             />
           }
-          ListEmptyComponent={
-            <View style={styles.empty}>
-              <Text style={styles.emptyIcon}>
-                {tab === 'open' ? '📖' : tab === 'mine' ? '✍️' : '🏁'}
-              </Text>
-              <Text style={styles.emptyText}>{getEmptyMessage()}</Text>
-              {tab === 'open' && (
-                <TouchableOpacity
-                  style={styles.emptyBtn}
-                  onPress={() => router.push('/(app)/story/create')}
-                >
-                  <Text style={styles.emptyBtnText}>Créer la première !</Text>
-                </TouchableOpacity>
-              )}
-              {tab === 'mine' && (
-                <TouchableOpacity
-                  style={styles.emptyBtn}
-                  onPress={() => setTab('open')}
-                >
-                  <Text style={styles.emptyBtnText}>Rejoindre une histoire</Text>
-                </TouchableOpacity>
-              )}
-            </View>
-          }
-          renderItem={({ item, index }) => (
-            <AnimatedStoryCard
-              story={item}
-              index={index}
-              onPress={() => router.push(`/(app)/story/${item.id}`)}
-            />
-          )}
+          ListEmptyComponent={renderEmptyState}
+          renderItem={renderItem}
+          showsVerticalScrollIndicator={false}
         />
       )}
 
@@ -284,41 +366,97 @@ export default function Feed() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F8F8FC' },
+  container: {
+    flex: 1,
+    backgroundColor: '#F8F8FC',
+  },
   tabBar: {
-    flexDirection: 'row', padding: 12, gap: 8,
-    backgroundColor: '#fff', borderBottomWidth: 1,
-    borderBottomColor: '#F0F0F0'
+    flexDirection: 'row',
+    padding: 12,
+    gap: 8,
+    backgroundColor: '#fff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#F0F0F0',
   },
   tab: {
-    flex: 1, paddingVertical: 8, borderRadius: 8,
-    borderWidth: 1, borderColor: '#E0E0E0',
-    alignItems: 'center', backgroundColor: '#fff'
+    flex: 1,
+    paddingVertical: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+    alignItems: 'center',
+    backgroundColor: '#fff',
   },
-  tabActive: { backgroundColor: '#7F77DD', borderColor: '#7F77DD' },
-  tabText: { fontSize: 12, color: '#666', fontWeight: '500' },
-  tabTextActive: { color: '#fff' },
-  emptyContainer: { flex: 1 },
+  tabActive: {
+    backgroundColor: '#7F77DD',
+    borderColor: '#7F77DD',
+  },
+  tabText: {
+    fontSize: 12,
+    color: '#666',
+    fontWeight: '500',
+  },
+  tabTextActive: {
+    color: '#fff',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  emptyContainer: {
+    flex: 1,
+  },
+  listContainer: {
+    paddingBottom: 100,
+  },
   empty: {
-    flex: 1, alignItems: 'center', justifyContent: 'center',
-    padding: 40, marginTop: 60
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 40,
+    marginTop: 60,
   },
-  emptyIcon: { fontSize: 48, marginBottom: 16 },
+  emptyIcon: {
+    fontSize: 48,
+    marginBottom: 16,
+  },
   emptyText: {
-    fontSize: 15, color: '#999', textAlign: 'center', marginBottom: 20
+    fontSize: 15,
+    color: '#999',
+    textAlign: 'center',
+    marginBottom: 20,
   },
   emptyBtn: {
-    backgroundColor: '#7F77DD', paddingHorizontal: 24,
-    paddingVertical: 12, borderRadius: 10
+    backgroundColor: '#7F77DD',
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 10,
   },
-  emptyBtnText: { color: '#fff', fontWeight: '600', fontSize: 14 },
+  emptyBtnText: {
+    color: '#fff',
+    fontWeight: '600',
+    fontSize: 14,
+  },
   fab: {
-    position: 'absolute', bottom: 24, right: 24,
-    width: 56, height: 56, borderRadius: 28,
-    backgroundColor: '#7F77DD', alignItems: 'center',
-    justifyContent: 'center', elevation: 5,
-    shadowColor: '#7F77DD', shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3, shadowRadius: 8
+    position: 'absolute',
+    bottom: 24,
+    right: 24,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: '#7F77DD',
+    alignItems: 'center',
+    justifyContent: 'center',
+    elevation: 5,
+    shadowColor: '#7F77DD',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
   },
-  fabText: { color: '#fff', fontSize: 30, lineHeight: 34 },
+  fabText: {
+    color: '#fff',
+    fontSize: 30,
+    lineHeight: 34,
+  },
 })

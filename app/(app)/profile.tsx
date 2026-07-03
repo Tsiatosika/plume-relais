@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import {
   View, Text, TouchableOpacity, StyleSheet,
-  ActivityIndicator, ScrollView
+  ActivityIndicator, ScrollView, Alert
 } from 'react-native'
 import { supabase } from '../../lib/supabase'
 import { useAuthStore } from '../../store/authStore'
@@ -31,8 +31,14 @@ export default function Profile() {
   }, [user])
 
   const handleSignOut = () => {
-    const confirmed = window.confirm('Tu veux vraiment te déconnecter ?')
-    if (confirmed) signOut()
+    Alert.alert(
+      'Déconnexion',
+      'Tu veux vraiment te déconnecter ?',
+      [
+        { text: 'Annuler', style: 'cancel' },
+        { text: 'Se déconnecter', onPress: () => signOut(), style: 'destructive' }
+      ]
+    )
   }
 
   if (loading) {

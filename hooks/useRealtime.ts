@@ -8,6 +8,14 @@ export function useRealtimeStory(
   onVote: () => void
 ) {
   const channelRef = useRef<any>(null)
+  const mountedRef = useRef(true)
+
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+    }
+  }, [])
 
   useEffect(() => {
     if (!storyId) return
@@ -18,35 +26,54 @@ export function useRealtimeStory(
       channelRef.current = null
     }
 
+    // Créer un nouveau channel
+    const channelName = `story-${storyId}-${Date.now()}`
     const channel = supabase
-      .channel(`story-${storyId}-${Date.now()}`)
-      .on('postgres_changes', {
-        event: 'INSERT',
-        schema: 'public',
-        table: 'paragraphs',
-        filter: `story_id=eq.${storyId}`
-      }, onParagraph)
-      .on('postgres_changes', {
-        event: 'INSERT',
-        schema: 'public',
-        table: 'proposals',
-        filter: `story_id=eq.${storyId}`
-      }, onProposal)
-      .on('postgres_changes', {
-        event: 'INSERT',
-        schema: 'public',
-        table: 'votes',
-        filter: `story_id=eq.${storyId}`
-      }, onVote)
-      .subscribe()
+      .channel(channelName)
+
+    // AJOUTER LES CALLBACKS AVANT LE SUBSCRIBE
+    .on('postgres_changes', {
+      event: 'INSERT',
+      schema: 'public',
+      table: 'paragraphs',
+      filter: `story_id=eq.${storyId}`
+    }, (payload) => {
+      console.log('📝 Nouveau paragraphe:', payload)
+      if (mountedRef.current) onParagraph()
+    })
+    .on('postgres_changes', {
+      event: 'INSERT',
+      schema: 'public',
+      table: 'proposals',
+      filter: `story_id=eq.${storyId}`
+    }, (payload) => {
+      console.log('💡 Nouvelle proposition:', payload)
+      if (mountedRef.current) onProposal()
+    })
+    .on('postgres_changes', {
+      event: 'INSERT',
+      schema: 'public',
+      table: 'votes',
+      filter: `story_id=eq.${storyId}`
+    }, (payload) => {
+      console.log('🗳️ Nouveau vote:', payload)
+      if (mountedRef.current) onVote()
+    })
+    .subscribe((status) => {
+      if (status === 'SUBSCRIBED') {
+        console.log(`📡 Channel ${channelName} subscribed`)
+      }
+    })
 
     channelRef.current = channel
 
+    // Nettoyage
     return () => {
       if (channelRef.current) {
+        console.log(`🔌 Unsubscribing from ${channelRef.current.topic}`)
         supabase.removeChannel(channelRef.current)
         channelRef.current = null
       }
     }
-  }, [storyId])
+  }, [storyId, onParagraph, onProposal, onVote])
 }

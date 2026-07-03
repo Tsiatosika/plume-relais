@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import {
   View, Text, TextInput, TouchableOpacity,
-  StyleSheet, KeyboardAvoidingView, Platform
+  StyleSheet, KeyboardAvoidingView, Platform, Alert
 } from 'react-native'
 import { useRouter } from 'expo-router'
 import { supabase } from '../../lib/supabase'
@@ -14,13 +14,15 @@ export default function Login() {
 
   const handleLogin = async () => {
     if (!email || !password) {
-      window.alert('Remplis tous les champs')
+      Alert.alert('Erreur', 'Remplis tous les champs')
       return
     }
     setLoading(true)
     const { error } = await supabase.auth.signInWithPassword({ email, password })
     setLoading(false)
-    if (error) window.alert('Erreur : ' + error.message)
+    if (error) {
+      Alert.alert('Erreur de connexion', error.message)
+    }
   }
 
   return (
