@@ -1,9 +1,10 @@
 import { useEffect, useState, useCallback } from 'react'
 import {
   View, Text, ScrollView, TouchableOpacity,
-  StyleSheet, ActivityIndicator, RefreshControl, Alert
+  StyleSheet, ActivityIndicator, RefreshControl, Alert, Platform
 } from 'react-native'
 import { useLocalSearchParams, useRouter, useNavigation } from 'expo-router'
+import { Ionicons } from '@expo/vector-icons'
 import { supabase } from '../../../lib/supabase'
 import { useAuthStore } from '../../../store/authStore'
 import { useRealtimeStory } from '../../../hooks/useRealtime'
@@ -21,12 +22,15 @@ function TurnTimer({
 
   if (!startedAt) return null
 
-  const barColor = pct > 50 ? '#7F77DD' : pct > 20 ? '#FFA726' : '#EF5350'
+  const barColor = pct > 50 ? '#5B4FCF' : pct > 20 ? '#F59E0B' : '#EF4444'
 
   return (
     <View style={timerStyles.container}>
       <View style={timerStyles.header}>
-        <Text style={timerStyles.label}>⏱ Temps restant ce tour</Text>
+        <View style={timerStyles.labelRow}>
+          <Ionicons name="time-outline" size={14} color="#8B7FB8" />
+          <Text style={timerStyles.label}>Temps restant ce tour</Text>
+        </View>
         <Text style={[timerStyles.time, isExpired && timerStyles.timeExpired]}>
           {timeLeft}
         </Text>
@@ -45,18 +49,21 @@ function TurnTimer({
 
 const timerStyles = StyleSheet.create({
   container: {
-    backgroundColor: '#F8F8FC', borderRadius: 12, padding: 14,
-    marginBottom: 16, borderWidth: 1, borderColor: '#EBEBEB'
+    backgroundColor: '#fff', borderRadius: 16, padding: 14,
+    marginBottom: 16, borderWidth: 1.5, borderColor: '#E8E4F8',
+    shadowColor: '#1A1033', shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04, shadowRadius: 8, elevation: 1,
   },
   header: {
     flexDirection: 'row', justifyContent: 'space-between',
     alignItems: 'center', marginBottom: 8
   },
-  label: { fontSize: 13, color: '#666', fontWeight: '500' },
-  time: { fontSize: 15, fontWeight: '700', color: '#7F77DD' },
-  timeExpired: { color: '#EF5350' },
+  labelRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  label: { fontSize: 13, color: '#8B7FB8', fontWeight: '600' },
+  time: { fontSize: 15, fontWeight: '700', color: '#5B4FCF' },
+  timeExpired: { color: '#EF4444' },
   bar: {
-    height: 6, backgroundColor: '#E0E0E0',
+    height: 6, backgroundColor: '#F0ECF8',
     borderRadius: 3, overflow: 'hidden'
   },
   fill: { height: 6, borderRadius: 3 },
@@ -76,27 +83,14 @@ export default function StoryScreen() {
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [joining, setJoining] = useState(false)
-  const [sharing, setSharing] = useState(false)
 
   const loadAll = useCallback(async () => {
-    if (!user) return 
+    if (!user) return
     const { data: storyData } = await supabase
       .from('stories').select('*').eq('id', id).single()
     if (!storyData) return
     setStory(storyData)
-    navigation.setOptions({
-      title: storyData.title,
-      headerRight: storyData.status === 'done' ? () => (
-        <TouchableOpacity
-          onPress={() => setSharing(true)}
-          style={{ marginRight: 16 }}
-        >
-          <Text style={{ color: '#7F77DD', fontSize: 14, fontWeight: '600' }}>
-            Partager
-          </Text>
-        </TouchableOpacity>
-      ) : undefined,
-    })
+    navigation.setOptions({ headerShown: false })
 
     const { data: memberData } = await supabase
       .from('story_members')
@@ -158,14 +152,15 @@ export default function StoryScreen() {
   }
 
   const handleShareLink = async () => {
-    const url = `${window.location.origin}/story/${id}`
+    const url = Platform.OS === 'web' ? `${window.location.origin}/story/${id}` : `plumerelais://story/${id}`
     try {
-      await navigator.clipboard.writeText(url)
-      Alert.alert('🔗 Lien copié !', url)
+      if (Platform.OS === 'web') {
+        await navigator.clipboard.writeText(url)
+      }
+      Alert.alert('Lien copié', url)
     } catch {
-      Alert.alert('Lien de l\'histoire', url)
+      Alert.alert("Lien de l'histoire", url)
     }
-    setSharing(false)
   }
 
   const handleShareText = async () => {
@@ -175,7 +170,7 @@ export default function StoryScreen() {
     }
 
     const lines: string[] = []
-    lines.push(`✒️ ${story.title}`)
+    lines.push(story.title)
     lines.push('━━━━━━━━━━━━━━━━━━━━')
     lines.push('')
 
@@ -191,17 +186,18 @@ export default function StoryScreen() {
     })
 
     lines.push('━━━━━━━━━━━━━━━━━━━━')
-    lines.push(`Écrit à plusieurs mains sur Plume Relais`)
+    lines.push('Écrit à plusieurs mains sur Plume Relais')
 
     const fullText = lines.join('\n')
 
     try {
-      await navigator.clipboard.writeText(fullText)
-      Alert.alert('📋 Histoire copiée !', 'Tu peux la coller où tu veux.')
+      if (Platform.OS === 'web') {
+        await navigator.clipboard.writeText(fullText)
+      }
+      Alert.alert('Histoire copiée', 'Tu peux la coller où tu veux.')
     } catch {
       Alert.alert('Info', 'Impossible de copier automatiquement.')
     }
-    setSharing(false)
   }
 
   const onRefresh = async () => {
@@ -213,7 +209,7 @@ export default function StoryScreen() {
   if (loading) {
     return (
       <View style={styles.centered}>
-        <ActivityIndicator size="large" color="#7F77DD" />
+        <ActivityIndicator size="large" color="#5B4FCF" />
       </View>
     )
   }
@@ -221,32 +217,65 @@ export default function StoryScreen() {
   if (!story) {
     return (
       <View style={styles.centered}>
+        <Ionicons name="alert-circle-outline" size={36} color="#C4B8E8" />
         <Text style={styles.errorText}>Histoire introuvable</Text>
       </View>
     )
   }
 
+  const statusConfig = story.status === 'done'
+    ? { label: 'Terminée', icon: 'checkmark-done-outline' as const, color: '#22C55E', bg: '#F0FDF4' }
+    : story.status === 'voting'
+      ? { label: 'Vote en cours', icon: 'podium-outline' as const, color: '#F59E0B', bg: '#FFFBEB' }
+      : { label: 'En cours', icon: 'time-outline' as const, color: '#5B4FCF', bg: '#F5F3FF' }
+
   return (
     <View style={styles.container}>
+      {/* Header */}
+      <View style={styles.header}>
+        <TouchableOpacity
+          style={styles.headerBackBtn}
+          onPress={() => router.back()}
+          activeOpacity={0.7}
+          hitSlop={8}
+        >
+          <Ionicons name="arrow-back" size={22} color="#1A1033" />
+        </TouchableOpacity>
+        <Text style={styles.headerTitle} numberOfLines={1}>{story.title}</Text>
+        {story.status === 'done' ? (
+          <TouchableOpacity
+            style={styles.headerShareBtn}
+            onPress={handleShareLink}
+            activeOpacity={0.7}
+            hitSlop={8}
+          >
+            <Ionicons name="share-social-outline" size={20} color="#5B4FCF" />
+          </TouchableOpacity>
+        ) : (
+          <View style={styles.headerSpacer} />
+        )}
+      </View>
+
       <ScrollView
         contentContainerStyle={styles.scroll}
+        showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh}
-            colors={['#7F77DD']} />
+            colors={['#5B4FCF']} tintColor="#5B4FCF" />
         }
       >
         {/* Badges */}
         <View style={styles.badges}>
           {story.blind_mode && (
             <View style={styles.badge}>
-              <Text style={styles.badgeText}>👁 Mode aveugle</Text>
+              <Ionicons name="eye-off-outline" size={13} color="#5B4FCF" />
+              <Text style={styles.badgeText}>Mode aveugle</Text>
             </View>
           )}
-          <View style={styles.badge}>
-            <Text style={styles.badgeText}>
-              {story.status === 'done' ? '✅ Terminée'
-                : story.status === 'voting' ? '🗳️ Vote en cours'
-                : '🟢 En cours'}
+          <View style={[styles.badge, { backgroundColor: statusConfig.bg }]}>
+            <Ionicons name={statusConfig.icon} size={13} color={statusConfig.color} />
+            <Text style={[styles.badgeText, { color: statusConfig.color }]}>
+              {statusConfig.label}
             </Text>
           </View>
         </View>
@@ -262,8 +291,9 @@ export default function StoryScreen() {
         {/* Avertissement mode aveugle */}
         {story.blind_mode && isMember && !hasProposed && story.status === 'open' && (
           <View style={styles.blindWarning}>
+            <Ionicons name="eye-off-outline" size={16} color="#D97706" />
             <Text style={styles.blindWarningText}>
-              👁 Mode aveugle — tu ne vois que les 2 derniers paragraphes.
+              Mode aveugle — tu ne vois que les 2 derniers paragraphes.
               Propose ta suite pour tout lire.
             </Text>
           </View>
@@ -272,6 +302,9 @@ export default function StoryScreen() {
         {/* Paragraphes */}
         {paragraphs.length === 0 ? (
           <View style={styles.emptyPara}>
+            <View style={styles.emptyParaIconWrap}>
+              <Ionicons name="document-text-outline" size={30} color="#B8AED8" />
+            </View>
             <Text style={styles.emptyParaText}>Aucun paragraphe pour l'instant.</Text>
           </View>
         ) : (
@@ -305,8 +338,11 @@ export default function StoryScreen() {
             <TouchableOpacity
               style={styles.shareBtn}
               onPress={handleShareLink}
+              activeOpacity={0.85}
             >
-              <Text style={styles.shareBtnIcon}>🔗</Text>
+              <View style={styles.shareBtnIconWrap}>
+                <Ionicons name="link-outline" size={20} color="#fff" />
+              </View>
               <View>
                 <Text style={styles.shareBtnTitle}>Copier le lien</Text>
                 <Text style={styles.shareBtnSub}>Partage l'URL de l'histoire</Text>
@@ -315,13 +351,16 @@ export default function StoryScreen() {
             <TouchableOpacity
               style={[styles.shareBtn, styles.shareBtnSecondary]}
               onPress={handleShareText}
+              activeOpacity={0.85}
             >
-              <Text style={styles.shareBtnIcon}>📋</Text>
+              <View style={[styles.shareBtnIconWrap, styles.shareBtnIconWrapSecondary]}>
+                <Ionicons name="clipboard-outline" size={20} color="#5B4FCF" />
+              </View>
               <View>
-                <Text style={[styles.shareBtnTitle, { color: '#7F77DD' }]}>
+                <Text style={[styles.shareBtnTitle, { color: '#5B4FCF' }]}>
                   Copier le texte complet
                 </Text>
-                <Text style={styles.shareBtnSub}>
+                <Text style={[styles.shareBtnSub, { color: '#9B8EC4' }]}>
                   Tous les paragraphes avec les auteurs
                 </Text>
               </View>
@@ -339,6 +378,7 @@ export default function StoryScreen() {
             style={[styles.actionBtn, joining && styles.btnDisabled]}
             onPress={handleJoin}
             disabled={joining}
+            activeOpacity={0.85}
           >
             {joining
               ? <ActivityIndicator color="#fff" />
@@ -353,8 +393,10 @@ export default function StoryScreen() {
           <TouchableOpacity
             style={styles.actionBtn}
             onPress={() => router.push(`/(app)/contribute/${id}`)}
+            activeOpacity={0.85}
           >
-            <Text style={styles.actionBtnText}>✒️ Proposer une suite</Text>
+            <Ionicons name="pencil" size={18} color="#fff" />
+            <Text style={styles.actionBtnText}>Proposer une suite</Text>
           </TouchableOpacity>
         </View>
       )}
@@ -364,9 +406,11 @@ export default function StoryScreen() {
           <TouchableOpacity
             style={[styles.actionBtn, styles.actionBtnSecondary]}
             onPress={() => router.push(`/(app)/story/vote/${id}`)}
+            activeOpacity={0.85}
           >
+            <Ionicons name="podium-outline" size={18} color="#5B4FCF" />
             <Text style={styles.actionBtnTextSecondary}>
-              🗳️ Voir les propositions & voter
+              Voir les propositions & voter
             </Text>
           </TouchableOpacity>
         </View>
@@ -375,7 +419,8 @@ export default function StoryScreen() {
       {isMember && story.status === 'done' && (
         <View style={styles.actionBar}>
           <View style={styles.doneBanner}>
-            <Text style={styles.doneText}>✅ Histoire terminée — bonne lecture !</Text>
+            <Ionicons name="checkmark-circle" size={18} color="#15803D" />
+            <Text style={styles.doneText}>Histoire terminée — bonne lecture !</Text>
           </View>
         </View>
       )}
@@ -384,76 +429,116 @@ export default function StoryScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#fff' },
-  centered: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  errorText: { color: '#999', fontSize: 16 },
+  container: { flex: 1, backgroundColor: '#F7F5FF' },
+  centered: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 10, backgroundColor: '#F7F5FF' },
+  errorText: { color: '#9B8EC4', fontSize: 16 },
+  header: {
+    flexDirection: 'row', alignItems: 'center',
+    paddingHorizontal: 12, paddingVertical: 14,
+    backgroundColor: '#fff',
+    borderBottomWidth: 1, borderBottomColor: '#F0ECF8',
+    gap: 8,
+  },
+  headerBackBtn: {
+    width: 36, height: 36, borderRadius: 12,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  headerTitle: {
+    flex: 1, fontFamily: 'Georgia', fontSize: 17,
+    fontWeight: '700', color: '#1A1033', letterSpacing: -0.2,
+  },
+  headerShareBtn: {
+    width: 36, height: 36, borderRadius: 12,
+    alignItems: 'center', justifyContent: 'center',
+    backgroundColor: '#F5F3FF',
+  },
+  headerSpacer: { width: 36 },
   scroll: { padding: 20 },
   badges: { flexDirection: 'row', gap: 8, marginBottom: 16 },
   badge: {
-    backgroundColor: '#EEEDFE', paddingHorizontal: 10,
-    paddingVertical: 4, borderRadius: 10
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    backgroundColor: '#F5F3FF', paddingHorizontal: 10,
+    paddingVertical: 6, borderRadius: 10
   },
-  badgeText: { fontSize: 12, color: '#7F77DD' },
+  badgeText: { fontSize: 12, color: '#5B4FCF', fontWeight: '600' },
   blindWarning: {
-    backgroundColor: '#FFF8E7', borderRadius: 10, padding: 12,
-    marginBottom: 20, borderWidth: 1, borderColor: '#FFE082'
+    flexDirection: 'row', alignItems: 'flex-start', gap: 8,
+    backgroundColor: '#FFFBEB', borderRadius: 14, padding: 14,
+    marginBottom: 20, borderWidth: 1, borderColor: '#FDE68A'
   },
-  blindWarningText: { fontSize: 13, color: '#8B6914', lineHeight: 18 },
-  emptyPara: { alignItems: 'center', paddingVertical: 40 },
-  emptyParaText: { color: '#AAA', fontSize: 15 },
+  blindWarningText: { flex: 1, fontSize: 13, color: '#92640A', lineHeight: 18 },
+  emptyPara: { alignItems: 'center', paddingVertical: 50 },
+  emptyParaIconWrap: {
+    width: 72, height: 72, borderRadius: 22,
+    backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center',
+    marginBottom: 14, borderWidth: 1.5, borderColor: '#E8E4F8',
+  },
+  emptyParaText: { color: '#9B8EC4', fontSize: 15 },
   paraBlock: { marginBottom: 8 },
   paraHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 10 },
   paraAvatar: {
-    width: 32, height: 32, borderRadius: 16,
-    backgroundColor: '#EEEDFE', alignItems: 'center',
+    width: 32, height: 32, borderRadius: 10,
+    backgroundColor: '#F5F3FF', alignItems: 'center',
     justifyContent: 'center', marginRight: 8
   },
-  paraAvatarText: { fontSize: 14, fontWeight: '600', color: '#7F77DD' },
-  paraAuthor: { fontSize: 13, fontWeight: '600', color: '#555', flex: 1 },
+  paraAvatarText: { fontSize: 14, fontWeight: '700', color: '#5B4FCF' },
+  paraAuthor: { fontSize: 13, fontWeight: '600', color: '#4A3F72', flex: 1 },
   openingBadge: {
-    backgroundColor: '#E8F5E9', paddingHorizontal: 8,
-    paddingVertical: 2, borderRadius: 8
+    backgroundColor: '#F0FDF4', paddingHorizontal: 8,
+    paddingVertical: 3, borderRadius: 8
   },
-  openingBadgeText: { fontSize: 11, color: '#388E3C' },
-  paraContent: { fontSize: 16, color: '#1A1A2E', lineHeight: 26 },
-  divider: { height: 1, backgroundColor: '#F0F0F0', marginVertical: 20 },
+  openingBadgeText: { fontSize: 11, color: '#15803D', fontWeight: '600' },
+  paraContent: { fontSize: 16, color: '#1A1033', lineHeight: 26 },
+  divider: { height: 1, backgroundColor: '#F0ECF8', marginVertical: 20 },
   shareSection: {
-    marginTop: 32, padding: 16, backgroundColor: '#F8F8FC',
-    borderRadius: 16, borderWidth: 1, borderColor: '#EBEBEB'
+    marginTop: 32, padding: 16, backgroundColor: '#fff',
+    borderRadius: 18, borderWidth: 1.5, borderColor: '#E8E4F8',
+    shadowColor: '#1A1033', shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04, shadowRadius: 8, elevation: 1,
   },
   shareSectionTitle: {
-    fontSize: 13, fontWeight: '600', color: '#999',
-    textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 12
+    fontSize: 12.5, fontWeight: '700', color: '#9B8EC4',
+    textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 12
   },
   shareBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 12,
-    backgroundColor: '#7F77DD', padding: 14,
-    borderRadius: 12, marginBottom: 10
+    backgroundColor: '#5B4FCF', padding: 14,
+    borderRadius: 14, marginBottom: 10
   },
   shareBtnSecondary: {
-    backgroundColor: '#fff', borderWidth: 1, borderColor: '#7F77DD'
+    backgroundColor: '#F7F5FF', borderWidth: 1.5, borderColor: '#E8E4F8'
   },
-  shareBtnIcon: { fontSize: 24 },
-  shareBtnTitle: { fontSize: 15, fontWeight: '600', color: '#fff' },
+  shareBtnIconWrap: {
+    width: 38, height: 38, borderRadius: 12,
+    backgroundColor: 'rgba(255,255,255,0.18)',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  shareBtnIconWrapSecondary: { backgroundColor: '#EDE8FA' },
+  shareBtnTitle: { fontSize: 15, fontWeight: '700', color: '#fff' },
   shareBtnSub: { fontSize: 12, color: 'rgba(255,255,255,0.8)', marginTop: 2 },
   actionBar: {
     position: 'absolute', bottom: 0, left: 0, right: 0,
     padding: 16, backgroundColor: '#fff',
-    borderTopWidth: 1, borderTopColor: '#F0F0F0'
+    borderTopWidth: 1, borderTopColor: '#F0ECF8'
   },
   actionBtn: {
-    backgroundColor: '#7F77DD', padding: 16,
-    borderRadius: 12, alignItems: 'center'
+    flexDirection: 'row', gap: 8,
+    backgroundColor: '#5B4FCF', padding: 16,
+    borderRadius: 15, alignItems: 'center', justifyContent: 'center',
+    shadowColor: '#5B4FCF', shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.3, shadowRadius: 14, elevation: 4,
   },
   actionBtnSecondary: {
-    backgroundColor: '#fff', borderWidth: 1, borderColor: '#7F77DD'
+    backgroundColor: '#fff', borderWidth: 1.5, borderColor: '#5B4FCF',
+    shadowOpacity: 0, elevation: 0,
   },
   actionBtnText: { color: '#fff', fontWeight: '700', fontSize: 16 },
-  actionBtnTextSecondary: { color: '#7F77DD', fontWeight: '700', fontSize: 16 },
+  actionBtnTextSecondary: { color: '#5B4FCF', fontWeight: '700', fontSize: 16 },
   btnDisabled: { opacity: 0.6 },
   doneBanner: {
-    backgroundColor: '#E8F5E9', padding: 14,
-    borderRadius: 12, alignItems: 'center'
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    backgroundColor: '#F0FDF4', padding: 14,
+    borderRadius: 14, borderWidth: 1, borderColor: '#BBF7D0',
   },
-  doneText: { color: '#388E3C', fontWeight: '600', fontSize: 15 },
+  doneText: { color: '#15803D', fontWeight: '700', fontSize: 15 },
 })

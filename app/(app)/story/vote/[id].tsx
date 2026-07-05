@@ -1,18 +1,16 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import {
   View, Text, ScrollView, TouchableOpacity,
-  StyleSheet, Alert, ActivityIndicator, RefreshControl, Platform
+  StyleSheet, ActivityIndicator, RefreshControl, Platform
 } from 'react-native'
 import { useLocalSearchParams, useRouter } from 'expo-router'
+import { Ionicons } from '@expo/vector-icons'
 import { supabase } from '../../../../lib/supabase'
 import { useAuthStore } from '../../../../store/authStore'
 
 interface Proposal {
-  id: string
-  content: string
-  author_id: string
-  votes_count: number
-  is_winner: boolean
+  id: string; content: string; author_id: string
+  votes_count: number; is_winner: boolean
   author: { pseudo: string }
 }
 
@@ -30,307 +28,235 @@ export default function VoteScreen() {
   const [voting, setVoting] = useState(false)
   const [closing, setClosing] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
+  const [live, setLive] = useState(false)
 
-  const loadData = async () => {
-    console.log('🔄 Chargement des données...')
-    
-    try {
-      // 1. Récupérer l'histoire
-      const { data: story } = await supabase
-        .from('stories')
-        .select('creator_id')
-        .eq('id', id)
-        .single()
-      
-      if (story) {
-        setCreatorId(story.creator_id)
-        console.log('📖 Créateur:', story.creator_id)
-      }
+  const loadData = useCallback(async () => {
+    const { data: story } = await supabase
+      .from('stories').select('creator_id').eq('id', id).single()
+    if (story) setCreatorId(story.creator_id)
 
-      // 2. Récupérer le tour actuel
-      const { data: paragraphs } = await supabase
-        .from('paragraphs')
-        .select('turn_number')
-        .eq('story_id', id)
-        .order('turn_number', { ascending: false })
-        .limit(1)
-      
-      const turn = paragraphs && paragraphs.length > 0 ? paragraphs[0].turn_number + 1 : 1
-      setCurrentTurn(turn)
-      console.log('🔄 Tour actuel:', turn)
+    const { data: paragraphs } = await supabase
+      .from('paragraphs').select('turn_number').eq('story_id', id)
+      .order('turn_number', { ascending: false }).limit(1)
+    const turn = paragraphs && paragraphs.length > 0 ? paragraphs[0].turn_number + 1 : 1
+    setCurrentTurn(turn)
 
-      // 3. Récupérer les propositions avec leurs votes
-      const { data: proposalsData, error: proposalsError } = await supabase
-        .from('proposals')
-        .select(`
-          id,
-          content,
-          author_id,
-          votes_count,
-          is_winner,
-          author:profiles(pseudo)
-        `)
-        .eq('story_id', id)
-        .eq('turn_number', turn)
-        .order('votes_count', { ascending: false })
+    const { data: proposalsData } = await supabase
+      .from('proposals')
+      .select('id, content, author_id, votes_count, is_winner, author:profiles(pseudo)')
+      .eq('story_id', id).eq('turn_number', turn)
+      .order('votes_count', { ascending: false })
+    setProposals(proposalsData || [])
 
-      if (proposalsError) {
-        console.error('❌ Erreur propositions:', proposalsError)
-        Alert.alert('Erreur', 'Impossible de charger les propositions')
-        return
-      }
+    const mine = (proposalsData || []).find(p => p.author_id === user?.id)
+    setMyProposalId(mine?.id || null)
 
-      console.log('📝 Propositions chargées:', proposalsData?.length || 0)
-      setProposals(proposalsData || [])
+    const { data: voteData } = await supabase
+      .from('votes').select('proposal_id')
+      .eq('voter_id', user?.id).eq('story_id', id).eq('turn_number', turn)
+      .maybeSingle()
+    setMyVote(voteData?.proposal_id || null)
 
-      // 4. Trouver la proposition de l'utilisateur
-      const myProposal = (proposalsData || []).find(p => p.author_id === user?.id)
-      setMyProposalId(myProposal?.id || null)
-
-      // 5. Vérifier si l'utilisateur a déjà voté
-      const { data: voteData } = await supabase
-        .from('votes')
-        .select('proposal_id')
-        .eq('voter_id', user?.id)
-        .eq('story_id', id)
-        .eq('turn_number', turn)
-        .maybeSingle()
-
-      setMyVote(voteData?.proposal_id || null)
-      console.log('🗳️ Vote existant:', voteData?.proposal_id || 'Aucun')
-
-    } catch (error) {
-      console.error('❌ Erreur:', error)
-      Alert.alert('Erreur', 'Une erreur est survenue')
-    }
-    
     setLoading(false)
-  }
+  }, [id, user?.id])
 
+  useEffect(() => { if (id && user) loadData() }, [id, user, loadData])
+
+  // Temps réel : les votes et propositions se mettent à jour en direct
+  // pour tout le monde, sans avoir besoin de tirer pour rafraîchir.
   useEffect(() => {
-    if (id && user) {
-      loadData()
+    if (!id || !user) return
+
+    const channel = supabase
+      .channel(`vote-turn-${id}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'votes', filter: `story_id=eq.${id}` },
+        () => { loadData() }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'proposals', filter: `story_id=eq.${id}` },
+        () => { loadData() }
+      )
+      .subscribe((status) => {
+        setLive(status === 'SUBSCRIBED')
+      })
+
+    return () => {
+      supabase.removeChannel(channel)
     }
-  }, [id])
+  }, [id, user, loadData])
 
   const handleVote = async (proposalId: string) => {
-    console.log('🗳️ Vote pour:', proposalId)
-    
-    if (myVote) {
-      Alert.alert('Info', 'Tu as déjà voté pour ce tour.')
-      return
-    }
-    
-    if (proposalId === myProposalId) {
-      Alert.alert('Info', 'Tu ne peux pas voter pour ta propre proposition.')
-      return
-    }
-
+    if (myVote || proposalId === myProposalId) return
     setVoting(true)
-    
-    try {
-      // ÉTAPE 1: Insérer le vote
-      console.log('📝 Insertion du vote...')
-      const { error: insertError } = await supabase
-        .from('votes')
-        .insert({
-          proposal_id: proposalId,
-          voter_id: user?.id,
-          story_id: id,
-          turn_number: currentTurn,
-        })
-
-      if (insertError) {
-        console.error('❌ Erreur insertion:', insertError)
-        Alert.alert('Erreur', 'Erreur lors du vote: ' + insertError.message)
-        setVoting(false)
-        return
-      }
-
-      console.log('✅ Vote inséré')
-
-      // ÉTAPE 2: Incrémenter le compteur de façon atomique via RPC
-      // (remplace l'ancien select + update qui échouait silencieusement à cause de RLS)
-      const { error: rpcError } = await supabase
-        .rpc('increment_proposal_votes', { proposal_id_input: proposalId })
-
-      if (rpcError) {
-        console.error('❌ Erreur incrémentation:', rpcError)
-        Alert.alert('Erreur', 'Erreur lors de la mise à jour des votes')
-        setVoting(false)
-        return
-      }
-
-      console.log('✅ Compteur mis à jour')
-
-      // ÉTAPE 3: Mettre à jour l'état local
+    const { error } = await supabase.from('votes').insert({
+      proposal_id: proposalId, voter_id: user?.id,
+      story_id: id, turn_number: currentTurn,
+    })
+    if (!error) {
+      await supabase.rpc('increment_votes', { proposal_id: proposalId })
       setMyVote(proposalId)
-      
-      // ÉTAPE 4: Recharger les données
       await loadData()
-      
-      Alert.alert('Succès', 'Ton vote a été enregistré !')
-
-    } catch (error) {
-      console.error('❌ Erreur:', error)
-      Alert.alert('Erreur', 'Une erreur est survenue')
     }
-    
     setVoting(false)
   }
 
-  const closeTurnLogic = async () => {
-    setClosing(true)
-
-    try {
-      // Trouver le gagnant
-      const winner = proposals.reduce((a, b) =>
-        (a.votes_count || 0) > (b.votes_count || 0) ? a : b
-      )
-
-      console.log('🏆 Gagnant:', winner.id, 'avec', winner.votes_count, 'votes')
-
-      // Ajouter le paragraphe
-      const { error: paraError } = await supabase
-        .from('paragraphs')
-        .insert({
-          story_id: id,
-          author_id: winner.author_id,
-          content: winner.content,
-          turn_number: currentTurn,
-        })
-
-      if (paraError) {
-        console.error('❌ Erreur paragraphe:', paraError)
-        Alert.alert('Erreur', paraError.message)
-        setClosing(false)
-        return
-      }
-
-      console.log('✅ Paragraphe ajouté')
-
-      // Marquer la proposition gagnante via RPC
-      // (remplace l'ancien update direct qui échouait silencieusement à cause de RLS)
-      const { error: winnerError } = await supabase
-        .rpc('mark_proposal_winner', { proposal_id_input: winner.id })
-
-      if (winnerError) {
-        console.error('❌ Erreur is_winner:', winnerError)
-      }
-
-      // Mettre à jour le statut de l'histoire
-      await supabase
-        .from('stories')
-        .update({
-          status: 'open',
-          turn_started_at: new Date().toISOString()
-        })
-        .eq('id', id)
-
-      console.log('✅ Tour clôturé')
-      Alert.alert('Succès', 'Tour clôturé !')
-      router.back()
-
-    } catch (error) {
-      console.error('❌ Erreur:', error)
-      Alert.alert('Erreur', 'Une erreur est survenue')
-    }
-
-    setClosing(false)
-  }
-
   const handleCloseTurn = async () => {
-    console.log('🏁 Tentative de clôture')
-    
-    if (proposals.length === 0) {
-      Alert.alert('Info', 'Aucune proposition à clôturer.')
-      return
-    }
+    if (proposals.length === 0) return
+    const confirmed = Platform.OS === 'web'
+      ? window.confirm('Clore ce tour ? La proposition gagnante sera ajoutée.')
+      : true
+    if (!confirmed) return
 
-    // Alert.alert avec plusieurs boutons ne fonctionne pas sur le web (expo web).
-    // On utilise window.confirm sur web, et Alert.alert natif sur mobile.
-    if (Platform.OS === 'web') {
-      const confirmed = window.confirm(
-        'Clôturer le tour ?\n\nLa proposition avec le plus de votes sera ajoutée à l\'histoire.'
-      )
-      if (confirmed) {
-        await closeTurnLogic()
-      }
+    setClosing(true)
+    const { error } = await supabase.rpc('close_turn', {
+      p_story_id: id, p_turn_number: currentTurn,
+    })
+    setClosing(false)
+    if (error) {
+      if (Platform.OS === 'web') window.alert('Erreur : ' + error.message)
     } else {
-      Alert.alert(
-        'Clôturer le tour',
-        'La proposition avec le plus de votes sera ajoutée à l\'histoire.',
-        [
-          { text: 'Annuler', style: 'cancel' },
-          { text: 'Clôturer', onPress: closeTurnLogic }
-        ]
-      )
+      if (Platform.OS === 'web') window.alert('Tour clôturé !')
+      router.back()
     }
   }
 
   if (loading) {
     return (
       <View style={styles.centered}>
-        <ActivityIndicator size="large" color="#7F77DD" />
+        <ActivityIndicator size="large" color="#5B4FCF" />
       </View>
     )
   }
 
   const isCreator = user?.id === creatorId
-  const totalVotes = proposals.reduce((sum, p) => sum + (p.votes_count || 0), 0)
-  console.log('📊 Total votes:', totalVotes)
+  const totalVotes = proposals.reduce((s, p) => s + (p.votes_count || 0), 0)
 
   return (
-    <ScrollView 
+    <ScrollView
       style={styles.container}
+      contentContainerStyle={styles.scrollContent}
       refreshControl={
-        <RefreshControl refreshing={refreshing} onRefresh={loadData} />
+        <RefreshControl
+          refreshing={refreshing}
+          onRefresh={async () => { setRefreshing(true); await loadData(); setRefreshing(false) }}
+          colors={['#5B4FCF']} tintColor="#5B4FCF"
+        />
       }
+      showsVerticalScrollIndicator={false}
     >
-      <Text style={styles.title}>
-        Tour {currentTurn} — {proposals.length} proposition(s)
-      </Text>
+      {/* Retour */}
+      <TouchableOpacity
+        style={styles.topBackBtn}
+        onPress={() => router.back()}
+        activeOpacity={0.7}
+        hitSlop={8}
+      >
+        <Ionicons name="arrow-back" size={20} color="#5B4FCF" />
+        <Text style={styles.topBackBtnText}>Retour</Text>
+      </TouchableOpacity>
 
+      {live && (
+        <View style={styles.livePill}>
+          <View style={styles.liveDot} />
+          <Text style={styles.livePillText}>Mis à jour en direct</Text>
+        </View>
+      )}
+
+      {/* Header */}
+      <View style={styles.pageHeader}>
+        <View style={styles.tourPill}>
+          <Ionicons name="git-branch-outline" size={13} color="#fff" />
+          <Text style={styles.tourPillText}>Tour {currentTurn}</Text>
+        </View>
+        <Text style={styles.pageTitle}>
+          {proposals.length} proposition{proposals.length !== 1 ? 's' : ''}
+        </Text>
+        <Text style={styles.pageSub}>
+          {totalVotes} vote{totalVotes !== 1 ? 's' : ''} au total
+        </Text>
+      </View>
+
+      {/* Bouton clore */}
       {isCreator && proposals.length > 0 && (
         <TouchableOpacity
-          style={[styles.closeBtn, closing && styles.btnDisabled]}
+          style={[styles.closeBtn, closing && styles.closeBtnDisabled]}
           onPress={handleCloseTurn}
           disabled={closing}
+          activeOpacity={0.85}
         >
-          {closing ? (
-            <ActivityIndicator color="#fff" size="small" />
-          ) : (
-            <Text style={styles.closeBtnText}>🏁 Clore ce tour</Text>
-          )}
+          {closing
+            ? <ActivityIndicator color="#fff" size="small" />
+            : (
+              <View style={styles.closeBtnContent}>
+                <Ionicons name="flag-outline" size={18} color="#fff" />
+                <Text style={styles.closeBtnText}>Clore ce tour</Text>
+              </View>
+            )
+          }
         </TouchableOpacity>
       )}
 
+      {/* Banner vote */}
       {myVote && (
         <View style={styles.votedBanner}>
-          <Text style={styles.votedText}>✅ Tu as voté ce tour.</Text>
+          <Ionicons name="checkmark-circle" size={18} color="#15803D" />
+          <Text style={styles.votedText}>
+            Ton vote est enregistré. Les résultats se mettent à jour en direct.
+          </Text>
         </View>
       )}
 
+      {/* Propositions */}
       {proposals.length === 0 ? (
         <View style={styles.empty}>
-          <Text style={styles.emptyIcon}>⏳</Text>
-          <Text style={styles.emptyText}>Aucune proposition pour l'instant</Text>
+          <View style={styles.emptyIconWrap}>
+            <Ionicons name="hourglass-outline" size={36} color="#B8AED8" />
+          </View>
+          <Text style={styles.emptyTitle}>Aucune proposition</Text>
+          <Text style={styles.emptyText}>
+            Les participants n'ont pas encore soumis de suite.
+          </Text>
         </View>
       ) : (
-        proposals.map(proposal => {
+        proposals.map((proposal, idx) => {
           const isMyProposal = proposal.author_id === user?.id
           const isMyVote = myVote === proposal.id
-          const pct = totalVotes > 0 
+          const pct = totalVotes > 0
             ? Math.round(((proposal.votes_count || 0) / totalVotes) * 100)
             : 0
+          const isLeading = idx === 0 && (proposal.votes_count || 0) > 0
 
           return (
-            <View key={proposal.id} style={[styles.card, isMyVote && styles.cardVoted]}>
-              <View style={styles.cardHeader}>
-                <Text style={styles.authorName}>
-                  {proposal.author?.pseudo || 'Anonyme'}
-                  {isMyProposal ? ' (toi)' : ''}
-                </Text>
+            <View
+              key={proposal.id}
+              style={[
+                styles.proposalCard,
+                isMyVote && styles.proposalCardVoted,
+                isLeading && styles.proposalCardLeading,
+              ]}
+            >
+              {isLeading && (
+                <View style={styles.leadingBadge}>
+                  <Ionicons name="trophy" size={13} color="#D97706" />
+                  <Text style={styles.leadingText}>En tête</Text>
+                </View>
+              )}
+
+              <View style={styles.proposalHeader}>
+                <View style={styles.authorInfo}>
+                  <View style={styles.authorAvatar}>
+                    <Text style={styles.authorAvatarText}>
+                      {proposal.author?.pseudo?.[0]?.toUpperCase() ?? '?'}
+                    </Text>
+                  </View>
+                  <Text style={styles.authorName}>
+                    {proposal.author?.pseudo ?? 'Anonyme'}
+                    {isMyProposal ? ' · toi' : ''}
+                  </Text>
+                </View>
                 <View style={styles.votesBadge}>
                   <Text style={styles.votesCount}>
                     {proposal.votes_count || 0} vote{(proposal.votes_count || 0) !== 1 ? 's' : ''}
@@ -340,26 +266,46 @@ export default function VoteScreen() {
 
               <Text style={styles.proposalText}>{proposal.content}</Text>
 
-              <View style={styles.progressBar}>
-                <View style={[styles.progressFill, { width: `${pct}%` }]} />
+              {/* Barre de vote */}
+              <View style={styles.voteBar}>
+                <View style={styles.voteBarBg}>
+                  <View style={[
+                    styles.voteBarFill,
+                    { width: `${pct}%` as any },
+                    isMyVote && styles.voteBarFillVoted,
+                  ]} />
+                </View>
+                <Text style={[styles.pctText, isMyVote && styles.pctTextVoted]}>
+                  {pct}%
+                </Text>
               </View>
-              <Text style={styles.pctText}>{pct}%</Text>
 
+              {/* Action */}
               {!myVote && !isMyProposal && (
                 <TouchableOpacity
-                  style={[styles.voteBtn, voting && styles.btnDisabled]}
+                  style={[styles.voteBtn, voting && styles.voteBtnDisabled]}
                   onPress={() => handleVote(proposal.id)}
                   disabled={voting}
+                  activeOpacity={0.85}
                 >
                   <Text style={styles.voteBtnText}>
-                    {voting ? 'Vote en cours...' : 'Voter pour cette suite'}
+                    {voting ? 'Envoi...' : 'Voter pour cette suite'}
                   </Text>
                 </TouchableOpacity>
               )}
 
+              {isMyProposal && !myVote && (
+                <View style={styles.ownProposalBadge}>
+                  <Text style={styles.ownProposalText}>
+                    Ta proposition — attends les votes des autres
+                  </Text>
+                </View>
+              )}
+
               {isMyVote && (
                 <View style={styles.myVoteBadge}>
-                  <Text style={styles.myVoteText}>✅ Ton vote</Text>
+                  <Ionicons name="checkmark-circle" size={15} color="#15803D" />
+                  <Text style={styles.myVoteText}>Tu as voté pour cette suite</Text>
                 </View>
               )}
             </View>
@@ -368,153 +314,132 @@ export default function VoteScreen() {
       )}
 
       <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
-        <Text style={styles.backBtnText}>← Retour à l'histoire</Text>
+        <Ionicons name="arrow-back" size={15} color="#5B4FCF" />
+        <Text style={styles.backBtnText}>Retour à l'histoire</Text>
       </TouchableOpacity>
+
+      <View style={{ height: 40 }} />
     </ScrollView>
   )
 }
 
 const styles = StyleSheet.create({
-  container: { 
-    flex: 1, 
-    backgroundColor: '#F8F8FC', 
-    padding: 16 
+  container: { flex: 1, backgroundColor: '#F7F5FF' },
+  scrollContent: { padding: 20 },
+  centered: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  topBackBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    alignSelf: 'flex-start', marginBottom: 14,
   },
-  centered: { 
-    flex: 1, 
-    alignItems: 'center', 
-    justifyContent: 'center' 
+  topBackBtnText: { color: '#5B4FCF', fontSize: 15, fontWeight: '600' },
+  livePill: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    alignSelf: 'flex-start', backgroundColor: '#F0FDF4',
+    paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20,
+    marginBottom: 14, borderWidth: 1, borderColor: '#BBF7D0',
   },
-  title: { 
-    fontSize: 18, 
-    fontWeight: '700', 
-    color: '#1A1A2E', 
-    marginBottom: 16 
+  liveDot: {
+    width: 6, height: 6, borderRadius: 3, backgroundColor: '#22C55E',
   },
+  livePillText: { fontSize: 11, color: '#15803D', fontWeight: '700' },
+  pageHeader: { marginBottom: 20 },
+  tourPill: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    alignSelf: 'flex-start', backgroundColor: '#5B4FCF',
+    paddingHorizontal: 14, paddingVertical: 7,
+    borderRadius: 20, marginBottom: 10,
+  },
+  tourPillText: { color: '#fff', fontSize: 12, fontWeight: '700' },
+  pageTitle: {
+    fontFamily: 'Georgia',
+    fontSize: 24, fontWeight: '700', color: '#1A1033',
+    letterSpacing: -0.5, marginBottom: 4,
+  },
+  pageSub: { fontSize: 14, color: '#9B8EC4' },
   closeBtn: {
-    backgroundColor: '#FF6B6B', 
-    padding: 14, 
-    borderRadius: 12,
-    alignItems: 'center', 
-    marginBottom: 16
+    backgroundColor: '#EF4444', padding: 16, borderRadius: 16,
+    marginBottom: 16,
+    shadowColor: '#EF4444', shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3, shadowRadius: 12, elevation: 4,
   },
-  closeBtnText: { 
-    color: '#fff', 
-    fontWeight: '700', 
-    fontSize: 15 
-  },
+  closeBtnDisabled: { opacity: 0.5, shadowOpacity: 0, elevation: 0 },
+  closeBtnContent: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
+  closeBtnText: { color: '#fff', fontWeight: '700', fontSize: 15 },
   votedBanner: {
-    backgroundColor: '#E8F5E9', 
-    borderRadius: 10, 
-    padding: 12,
-    marginBottom: 16, 
-    borderWidth: 1, 
-    borderColor: '#A5D6A7'
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    backgroundColor: '#F0FDF4', borderRadius: 14, padding: 14,
+    marginBottom: 16, borderWidth: 1, borderColor: '#BBF7D0',
   },
-  votedText: { 
-    fontSize: 13, 
-    color: '#2E7D32' 
+  votedText: { fontSize: 13, color: '#15803D', flex: 1, lineHeight: 18 },
+  empty: { alignItems: 'center', paddingVertical: 60 },
+  emptyIconWrap: {
+    width: 76, height: 76, borderRadius: 24,
+    backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center',
+    marginBottom: 16, borderWidth: 1.5, borderColor: '#E8E4F8',
   },
-  empty: { 
-    alignItems: 'center', 
-    paddingVertical: 60 
+  emptyTitle: { fontSize: 18, fontWeight: '700', color: '#1A1033', marginBottom: 6 },
+  emptyText: { fontSize: 14, color: '#9B8EC4', textAlign: 'center' },
+  proposalCard: {
+    backgroundColor: '#fff', borderRadius: 20, padding: 18,
+    marginBottom: 14, borderWidth: 1.5, borderColor: '#F0ECF8',
+    shadowColor: '#1A1033', shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06, shadowRadius: 12, elevation: 3,
   },
-  emptyIcon: { 
-    fontSize: 40, 
-    marginBottom: 12 
+  proposalCardVoted: { borderColor: '#5B4FCF' },
+  proposalCardLeading: { borderColor: '#F59E0B' },
+  leadingBadge: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    alignSelf: 'flex-start', backgroundColor: '#FFFBEB',
+    paddingHorizontal: 10, paddingVertical: 5,
+    borderRadius: 10, marginBottom: 10,
   },
-  emptyText: { 
-    fontSize: 15, 
-    color: '#999' 
+  leadingText: { fontSize: 12, fontWeight: '700', color: '#D97706' },
+  proposalHeader: {
+    flexDirection: 'row', justifyContent: 'space-between',
+    alignItems: 'center', marginBottom: 12,
   },
-  card: {
-    backgroundColor: '#fff', 
-    borderRadius: 14, 
-    padding: 16,
-    marginBottom: 12, 
-    borderWidth: 1, 
-    borderColor: '#EBEBEB'
+  authorInfo: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  authorAvatar: {
+    width: 32, height: 32, borderRadius: 10,
+    backgroundColor: '#F5F3FF', alignItems: 'center', justifyContent: 'center',
   },
-  cardVoted: { 
-    borderColor: '#7F77DD', 
-    borderWidth: 2 
-  },
-  cardHeader: {
-    flexDirection: 'row', 
-    justifyContent: 'space-between',
-    alignItems: 'center', 
-    marginBottom: 10
-  },
-  authorName: { 
-    fontSize: 13, 
-    fontWeight: '600', 
-    color: '#7F77DD' 
-  },
+  authorAvatarText: { fontSize: 14, fontWeight: '700', color: '#5B4FCF' },
+  authorName: { fontSize: 14, fontWeight: '600', color: '#1A1033' },
   votesBadge: {
-    backgroundColor: '#EEEDFE', 
-    paddingHorizontal: 10,
-    paddingVertical: 3, 
-    borderRadius: 10
+    backgroundColor: '#F5F3FF', paddingHorizontal: 10,
+    paddingVertical: 4, borderRadius: 10,
   },
-  votesCount: { 
-    fontSize: 12, 
-    color: '#7F77DD', 
-    fontWeight: '600' 
+  votesCount: { fontSize: 12, fontWeight: '700', color: '#5B4FCF' },
+  proposalText: {
+    fontSize: 15, color: '#1A1033', lineHeight: 24, marginBottom: 14,
   },
-  proposalText: { 
-    fontSize: 15, 
-    color: '#1A1A2E', 
-    lineHeight: 24, 
-    marginBottom: 12 
+  voteBar: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 14 },
+  voteBarBg: {
+    flex: 1, height: 8, backgroundColor: '#F0ECF8',
+    borderRadius: 4, overflow: 'hidden',
   },
-  progressBar: {
-    height: 6, 
-    backgroundColor: '#F0F0F0',
-    borderRadius: 3, 
-    overflow: 'hidden', 
-    marginBottom: 4
-  },
-  progressFill: { 
-    height: 6, 
-    backgroundColor: '#7F77DD', 
-    borderRadius: 3 
-  },
-  pctText: { 
-    fontSize: 11, 
-    color: '#AAA', 
-    marginBottom: 12 
-  },
+  voteBarFill: { height: 8, backgroundColor: '#C4B8E8', borderRadius: 4 },
+  voteBarFillVoted: { backgroundColor: '#5B4FCF' },
+  pctText: { fontSize: 13, color: '#9B8EC4', fontWeight: '600', minWidth: 36 },
+  pctTextVoted: { color: '#5B4FCF' },
   voteBtn: {
-    backgroundColor: '#7F77DD', 
-    padding: 12,
-    borderRadius: 10, 
-    alignItems: 'center'
+    backgroundColor: '#5B4FCF', padding: 14, borderRadius: 14,
+    alignItems: 'center',
+    shadowColor: '#5B4FCF', shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25, shadowRadius: 10, elevation: 4,
   },
-  btnDisabled: { 
-    opacity: 0.5 
+  voteBtnDisabled: { opacity: 0.5, shadowOpacity: 0, elevation: 0 },
+  voteBtnText: { color: '#fff', fontWeight: '700', fontSize: 14 },
+  ownProposalBadge: {
+    backgroundColor: '#F7F5FF', padding: 12, borderRadius: 12, alignItems: 'center',
   },
-  voteBtnText: { 
-    color: '#fff', 
-    fontWeight: '600', 
-    fontSize: 14 
-  },
+  ownProposalText: { fontSize: 13, color: '#9B8EC4' },
   myVoteBadge: {
-    backgroundColor: '#E8F5E9', 
-    padding: 8,
-    borderRadius: 8, 
-    alignItems: 'center'
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+    backgroundColor: '#F0FDF4', padding: 12, borderRadius: 12,
+    borderWidth: 1, borderColor: '#BBF7D0',
   },
-  myVoteText: { 
-    color: '#388E3C', 
-    fontWeight: '600', 
-    fontSize: 13 
-  },
-  backBtn: { 
-    alignItems: 'center', 
-    padding: 16 
-  },
-  backBtnText: { 
-    color: '#7F77DD', 
-    fontSize: 14 
-  },
+  myVoteText: { fontSize: 13, color: '#15803D', fontWeight: '600' },
+  backBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, padding: 20 },
+  backBtnText: { color: '#5B4FCF', fontSize: 14, fontWeight: '600' },
 })
