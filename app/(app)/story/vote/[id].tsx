@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import {
   View, Text, ScrollView, TouchableOpacity,
-  StyleSheet, ActivityIndicator, RefreshControl, Platform
+  StyleSheet, ActivityIndicator, RefreshControl, Platform, Alert
 } from 'react-native'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
@@ -29,41 +29,58 @@ export default function VoteScreen() {
   const [closing, setClosing] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
   const [live, setLive] = useState(false)
+  const [voteCounts, setVoteCounts] = useState<Record<string, number>>({})
 
   const loadData = useCallback(async () => {
-    const { data: story } = await supabase
-      .from('stories').select('creator_id').eq('id', id).single()
-    if (story) setCreatorId(story.creator_id)
+    try {
+      console.log('🔄 Chargement des données...')
+      
+      const { data: story } = await supabase
+        .from('stories').select('creator_id').eq('id', id).single()
+      if (story) setCreatorId(story.creator_id)
 
-    const { data: paragraphs } = await supabase
-      .from('paragraphs').select('turn_number').eq('story_id', id)
-      .order('turn_number', { ascending: false }).limit(1)
-    const turn = paragraphs && paragraphs.length > 0 ? paragraphs[0].turn_number + 1 : 1
-    setCurrentTurn(turn)
+      const { data: paragraphs } = await supabase
+        .from('paragraphs').select('turn_number').eq('story_id', id)
+        .order('turn_number', { ascending: false }).limit(1)
+      const turn = paragraphs && paragraphs.length > 0 ? paragraphs[0].turn_number + 1 : 1
+      setCurrentTurn(turn)
 
-    const { data: proposalsData } = await supabase
-      .from('proposals')
-      .select('id, content, author_id, votes_count, is_winner, author:profiles(pseudo)')
-      .eq('story_id', id).eq('turn_number', turn)
-      .order('votes_count', { ascending: false })
-    setProposals(proposalsData || [])
+      const { data: proposalsData } = await supabase
+        .from('proposals')
+        .select('id, content, author_id, votes_count, is_winner, author:profiles(pseudo)')
+        .eq('story_id', id).eq('turn_number', turn)
+        .order('votes_count', { ascending: false })
+      
+      console.log('📊 Propositions chargées:', proposalsData?.length || 0)
+      
+      const counts: Record<string, number> = {}
+      proposalsData?.forEach(p => {
+        counts[p.id] = p.votes_count || 0
+        console.log(`  - ${p.author?.pseudo}: ${p.votes_count || 0} votes`)
+      })
+      setVoteCounts(counts)
+      
+      setProposals(proposalsData || [])
 
-    const mine = (proposalsData || []).find(p => p.author_id === user?.id)
-    setMyProposalId(mine?.id || null)
+      const mine = (proposalsData || []).find(p => p.author_id === user?.id)
+      setMyProposalId(mine?.id || null)
 
-    const { data: voteData } = await supabase
-      .from('votes').select('proposal_id')
-      .eq('voter_id', user?.id).eq('story_id', id).eq('turn_number', turn)
-      .maybeSingle()
-    setMyVote(voteData?.proposal_id || null)
+      const { data: voteData } = await supabase
+        .from('votes').select('proposal_id')
+        .eq('voter_id', user?.id).eq('story_id', id).eq('turn_number', turn)
+        .maybeSingle()
+      setMyVote(voteData?.proposal_id || null)
 
-    setLoading(false)
+      setLoading(false)
+    } catch (error) {
+      console.error('❌ Erreur chargement:', error)
+      setLoading(false)
+    }
   }, [id, user?.id])
 
   useEffect(() => { if (id && user) loadData() }, [id, user, loadData])
 
-  // Temps réel : les votes et propositions se mettent à jour en direct
-  // pour tout le monde, sans avoir besoin de tirer pour rafraîchir.
+  // Temps réel
   useEffect(() => {
     if (!id || !user) return
 
@@ -71,16 +88,23 @@ export default function VoteScreen() {
       .channel(`vote-turn-${id}`)
       .on(
         'postgres_changes',
-        { event: '*', schema: 'public', table: 'votes', filter: `story_id=eq.${id}` },
-        () => { loadData() }
+        { event: 'INSERT', schema: 'public', table: 'votes', filter: `story_id=eq.${id}` },
+        (payload) => {
+          console.log('🔄 Nouveau vote détecté:', payload)
+          loadData()
+        }
       )
       .on(
         'postgres_changes',
-        { event: '*', schema: 'public', table: 'proposals', filter: `story_id=eq.${id}` },
-        () => { loadData() }
+        { event: 'UPDATE', schema: 'public', table: 'proposals', filter: `story_id=eq.${id}` },
+        (payload) => {
+          console.log('🔄 Mise à jour proposition détectée:', payload)
+          loadData()
+        }
       )
       .subscribe((status) => {
         setLive(status === 'SUBSCRIBED')
+        console.log('📡 Status channel:', status)
       })
 
     return () => {
@@ -89,38 +113,219 @@ export default function VoteScreen() {
   }, [id, user, loadData])
 
   const handleVote = async (proposalId: string) => {
-    if (myVote || proposalId === myProposalId) return
-    setVoting(true)
-    const { error } = await supabase.from('votes').insert({
-      proposal_id: proposalId, voter_id: user?.id,
-      story_id: id, turn_number: currentTurn,
-    })
-    if (!error) {
-      await supabase.rpc('increment_votes', { proposal_id: proposalId })
-      setMyVote(proposalId)
-      await loadData()
+    if (myVote) {
+      if (Platform.OS === 'web') {
+        window.alert('Tu as déjà voté pour ce tour.')
+      } else {
+        Alert.alert('Info', 'Tu as déjà voté pour ce tour.')
+      }
+      return
     }
+    if (proposalId === myProposalId) {
+      if (Platform.OS === 'web') {
+        window.alert('Tu ne peux pas voter pour ta propre proposition.')
+      } else {
+        Alert.alert('Info', 'Tu ne peux pas voter pour ta propre proposition.')
+      }
+      return
+    }
+    
+    setVoting(true)
+    console.log('🗳️ Vote pour:', proposalId)
+    
+    try {
+      const { data: existingVote } = await supabase
+        .from('votes')
+        .select('id')
+        .eq('voter_id', user?.id)
+        .eq('story_id', id)
+        .eq('turn_number', currentTurn)
+        .maybeSingle()
+      
+      if (existingVote) {
+        if (Platform.OS === 'web') {
+          window.alert('Tu as déjà voté pour ce tour.')
+        } else {
+          Alert.alert('Info', 'Tu as déjà voté pour ce tour.')
+        }
+        setVoting(false)
+        return
+      }
+      
+      const { error: insertError } = await supabase.from('votes').insert({
+        proposal_id: proposalId, 
+        voter_id: user?.id,
+        story_id: id, 
+        turn_number: currentTurn,
+      })
+      
+      if (insertError) {
+        console.error('❌ Erreur insertion vote:', insertError)
+        if (Platform.OS === 'web') {
+          window.alert('Erreur: ' + insertError.message)
+        } else {
+          Alert.alert('Erreur', insertError.message)
+        }
+        setVoting(false)
+        return
+      }
+      
+      console.log('✅ Vote inséré')
+      
+      const currentCount = voteCounts[proposalId] || 0
+      const newCount = currentCount + 1
+      
+      const { error: updateError } = await supabase
+        .from('proposals')
+        .update({ votes_count: newCount })
+        .eq('id', proposalId)
+      
+      if (updateError) {
+        console.error('❌ Erreur mise à jour compteur:', updateError)
+        setVoting(false)
+        return
+      }
+      
+      console.log('✅ Compteur mis à jour:', newCount)
+      
+      setMyVote(proposalId)
+      
+      setVoteCounts(prev => ({
+        ...prev,
+        [proposalId]: newCount
+      }))
+      
+      setProposals(prev => 
+        prev.map(p => {
+          if (p.id === proposalId) {
+            return { ...p, votes_count: newCount }
+          }
+          return p
+        })
+      )
+      
+      if (Platform.OS === 'web') {
+        window.alert('✅ Ton vote a été enregistré !')
+      } else {
+        Alert.alert('Succès', 'Ton vote a été enregistré !')
+      }
+      
+      setTimeout(() => {
+        loadData()
+      }, 500)
+      
+    } catch (error) {
+      console.error('❌ Erreur:', error)
+      if (Platform.OS === 'web') {
+        window.alert('Une erreur est survenue')
+      } else {
+        Alert.alert('Erreur', 'Une erreur est survenue')
+      }
+    }
+    
     setVoting(false)
   }
 
   const handleCloseTurn = async () => {
-    if (proposals.length === 0) return
-    const confirmed = Platform.OS === 'web'
-      ? window.confirm('Clore ce tour ? La proposition gagnante sera ajoutée.')
-      : true
-    if (!confirmed) return
-
-    setClosing(true)
-    const { error } = await supabase.rpc('close_turn', {
-      p_story_id: id, p_turn_number: currentTurn,
-    })
-    setClosing(false)
-    if (error) {
-      if (Platform.OS === 'web') window.alert('Erreur : ' + error.message)
-    } else {
-      if (Platform.OS === 'web') window.alert('Tour clôturé !')
-      router.back()
+    console.log('🏁 Tentative de clôture...')
+    
+    if (proposals.length === 0) {
+      if (Platform.OS === 'web') {
+        window.alert('Aucune proposition à clôturer.')
+      } else {
+        Alert.alert('Info', 'Aucune proposition à clôturer.')
+      }
+      return
     }
+
+    // Utiliser window.confirm sur Web, Alert.alert sur mobile
+    if (Platform.OS === 'web') {
+      const confirmed = window.confirm('Clore ce tour ? La proposition gagnante sera ajoutée à l\'histoire.')
+      if (!confirmed) return
+      await performCloseTurn()
+    } else {
+      Alert.alert(
+        'Clôturer le tour',
+        'La proposition avec le plus de votes sera ajoutée à l\'histoire.',
+        [
+          { text: 'Annuler', style: 'cancel' },
+          { 
+            text: 'Clôturer', 
+            onPress: performCloseTurn
+          }
+        ]
+      )
+    }
+  }
+
+  const performCloseTurn = async () => {
+    setClosing(true)
+    try {
+      // Trouver le gagnant avec les votes actuels
+      const winner = proposals.reduce((a, b) => 
+        (voteCounts[a.id] || 0) > (voteCounts[b.id] || 0) ? a : b
+      )
+      
+      const winnerVotes = voteCounts[winner.id] || 0
+      console.log('🏆 Gagnant:', winner.id, 'avec', winnerVotes, 'votes')
+      
+      // Ajouter le paragraphe
+      const { error: paraError } = await supabase
+        .from('paragraphs')
+        .insert({
+          story_id: id,
+          author_id: winner.author_id,
+          content: winner.content,
+          turn_number: currentTurn,
+        })
+      
+      if (paraError) {
+        console.error('❌ Erreur paragraphe:', paraError)
+        if (Platform.OS === 'web') {
+          window.alert('Erreur: ' + paraError.message)
+        } else {
+          Alert.alert('Erreur', paraError.message)
+        }
+        setClosing(false)
+        return
+      }
+      
+      console.log('✅ Paragraphe ajouté')
+      
+      // Marquer la proposition gagnante
+      await supabase
+        .from('proposals')
+        .update({ is_winner: true })
+        .eq('id', winner.id)
+      
+      // Mettre à jour le statut de l'histoire
+      await supabase
+        .from('stories')
+        .update({ 
+          status: 'open',
+          turn_started_at: new Date().toISOString()
+        })
+        .eq('id', id)
+      
+      console.log('✅ Tour clôturé')
+      
+      if (Platform.OS === 'web') {
+        window.alert('✅ Tour clôturé ! La suite gagnante a été ajoutée.')
+      } else {
+        Alert.alert('Succès', 'Tour clôturé ! La suite gagnante a été ajoutée.')
+      }
+      
+      router.back()
+      
+    } catch (error) {
+      console.error('❌ Erreur:', error)
+      if (Platform.OS === 'web') {
+        window.alert('Une erreur est survenue')
+      } else {
+        Alert.alert('Erreur', 'Une erreur est survenue')
+      }
+    }
+    setClosing(false)
   }
 
   if (loading) {
@@ -132,7 +337,7 @@ export default function VoteScreen() {
   }
 
   const isCreator = user?.id === creatorId
-  const totalVotes = proposals.reduce((s, p) => s + (p.votes_count || 0), 0)
+  const totalVotes = Object.values(voteCounts).reduce((sum, count) => sum + (count || 0), 0)
 
   return (
     <ScrollView
@@ -224,10 +429,11 @@ export default function VoteScreen() {
         proposals.map((proposal, idx) => {
           const isMyProposal = proposal.author_id === user?.id
           const isMyVote = myVote === proposal.id
+          const votes = voteCounts[proposal.id] || 0
           const pct = totalVotes > 0
-            ? Math.round(((proposal.votes_count || 0) / totalVotes) * 100)
+            ? Math.round((votes / totalVotes) * 100)
             : 0
-          const isLeading = idx === 0 && (proposal.votes_count || 0) > 0
+          const isLeading = idx === 0 && votes > 0
 
           return (
             <View
@@ -258,8 +464,9 @@ export default function VoteScreen() {
                   </Text>
                 </View>
                 <View style={styles.votesBadge}>
+                  <Ionicons name="people-outline" size={12} color="#5B4FCF" />
                   <Text style={styles.votesCount}>
-                    {proposal.votes_count || 0} vote{(proposal.votes_count || 0) !== 1 ? 's' : ''}
+                    {votes}
                   </Text>
                 </View>
               </View>
@@ -288,16 +495,18 @@ export default function VoteScreen() {
                   disabled={voting}
                   activeOpacity={0.85}
                 >
+                  <Ionicons name="checkmark-outline" size={18} color="#fff" />
                   <Text style={styles.voteBtnText}>
-                    {voting ? 'Envoi...' : 'Voter pour cette suite'}
+                    {voting ? 'Envoi...' : 'Voter'}
                   </Text>
                 </TouchableOpacity>
               )}
 
               {isMyProposal && !myVote && (
                 <View style={styles.ownProposalBadge}>
+                  <Ionicons name="information-circle-outline" size={14} color="#9B8EC4" />
                   <Text style={styles.ownProposalText}>
-                    Ta proposition — attends les votes des autres
+                    Ta proposition — attends les votes
                   </Text>
                 </View>
               )}
@@ -406,6 +615,7 @@ const styles = StyleSheet.create({
   authorAvatarText: { fontSize: 14, fontWeight: '700', color: '#5B4FCF' },
   authorName: { fontSize: 14, fontWeight: '600', color: '#1A1033' },
   votesBadge: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
     backgroundColor: '#F5F3FF', paddingHorizontal: 10,
     paddingVertical: 4, borderRadius: 10,
   },
@@ -423,15 +633,16 @@ const styles = StyleSheet.create({
   pctText: { fontSize: 13, color: '#9B8EC4', fontWeight: '600', minWidth: 36 },
   pctTextVoted: { color: '#5B4FCF' },
   voteBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
     backgroundColor: '#5B4FCF', padding: 14, borderRadius: 14,
-    alignItems: 'center',
     shadowColor: '#5B4FCF', shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.25, shadowRadius: 10, elevation: 4,
   },
   voteBtnDisabled: { opacity: 0.5, shadowOpacity: 0, elevation: 0 },
   voteBtnText: { color: '#fff', fontWeight: '700', fontSize: 14 },
   ownProposalBadge: {
-    backgroundColor: '#F7F5FF', padding: 12, borderRadius: 12, alignItems: 'center',
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+    backgroundColor: '#F7F5FF', padding: 12, borderRadius: 12,
   },
   ownProposalText: { fontSize: 13, color: '#9B8EC4' },
   myVoteBadge: {
