@@ -10,6 +10,7 @@ import { useAuthStore } from '../../../store/authStore'
 import { useRealtimeStory } from '../../../hooks/useRealtime'
 import { useCountdown } from '../../../hooks/useCountdown'
 import { Story, Paragraph } from '../../../types'
+import CommentSection from '../../../components/CommentSection'
 
 function TurnTimer({
   startedAt,
@@ -86,51 +87,57 @@ export default function StoryScreen() {
 
   const loadAll = useCallback(async () => {
     if (!user) return
-    const { data: storyData } = await supabase
-      .from('stories').select('*').eq('id', id).single()
-    if (!storyData) return
-    setStory(storyData)
-    navigation.setOptions({ headerShown: false })
+    try {
+      const { data: storyData } = await supabase
+        .from('stories').select('*').eq('id', id).single()
+      if (!storyData) return
+      setStory(storyData)
+      navigation.setOptions({ headerShown: false })
 
-    const { data: memberData } = await supabase
-      .from('story_members')
-      .select('*').eq('story_id', id).eq('user_id', user.id).single()
-    const member = !!memberData
-    setIsMember(member)
+      const { data: memberData } = await supabase
+        .from('story_members')
+        .select('*').eq('story_id', id).eq('user_id', user.id).single()
+      const member = !!memberData
+      setIsMember(member)
 
-    const { data: paraList } = await supabase
-      .from('paragraphs').select('turn_number')
-      .eq('story_id', id)
-      .order('turn_number', { ascending: false })
-      .limit(1)
-    const turn = paraList && paraList.length > 0 ? paraList[0].turn_number + 1 : 1
-    setCurrentTurn(turn)
-
-    const { data: myProposalList } = await supabase
-      .from('proposals').select('id')
-      .eq('story_id', id).eq('author_id', user.id)
-      .eq('turn_number', turn)
-    const proposed = (myProposalList?.length ?? 0) > 0
-    setHasProposed(proposed)
-
-    if (storyData.blind_mode && member && !proposed) {
-      const { data: blindParas } = await supabase
-        .from('paragraphs')
-        .select('*, author:profiles(pseudo, avatar_url)')
+      const { data: paraList } = await supabase
+        .from('paragraphs').select('turn_number')
         .eq('story_id', id)
         .order('turn_number', { ascending: false })
-        .limit(2)
-      setParagraphs((blindParas ?? []).reverse())
-    } else {
-      const { data: allParas } = await supabase
-        .from('paragraphs')
-        .select('*, author:profiles(pseudo, avatar_url)')
-        .eq('story_id', id)
-        .order('turn_number', { ascending: true })
-      setParagraphs(allParas ?? [])
-    }
+        .limit(1)
+      const turn = paraList && paraList.length > 0 ? paraList[0].turn_number + 1 : 1
+      setCurrentTurn(turn)
 
-    setLoading(false)
+      const { data: myProposalList } = await supabase
+        .from('proposals').select('id')
+        .eq('story_id', id).eq('author_id', user.id)
+        .eq('turn_number', turn)
+      const proposed = (myProposalList?.length ?? 0) > 0
+      setHasProposed(proposed)
+
+      if (storyData.blind_mode && member && !proposed) {
+        const { data: blindParas } = await supabase
+          .from('paragraphs')
+          .select('*, author:profiles(pseudo, avatar_url)')
+          .eq('story_id', id)
+          .order('turn_number', { ascending: false })
+          .limit(2)
+        setParagraphs((blindParas ?? []).reverse())
+      } else {
+        const { data: allParas } = await supabase
+          .from('paragraphs')
+          .select('*, author:profiles(pseudo, avatar_url)')
+          .eq('story_id', id)
+          .order('turn_number', { ascending: true })
+        setParagraphs(allParas ?? [])
+      }
+
+      setLoading(false)
+    } catch (error) {
+      console.error('Erreur chargement:', error)
+      Alert.alert('Erreur', 'Impossible de charger l\'histoire')
+      setLoading(false)
+    }
   }, [id, user?.id])
 
   useEffect(() => { if (user) loadAll() }, [loadAll])
@@ -148,6 +155,7 @@ export default function StoryScreen() {
       return
     }
     setIsMember(true)
+    Alert.alert('Succès', 'Tu as rejoint l\'histoire !')
     loadAll()
   }
 
@@ -157,7 +165,7 @@ export default function StoryScreen() {
       if (Platform.OS === 'web') {
         await navigator.clipboard.writeText(url)
       }
-      Alert.alert('Lien copié', url)
+      Alert.alert('Lien copié !', url)
     } catch {
       Alert.alert("Lien de l'histoire", url)
     }
@@ -170,7 +178,7 @@ export default function StoryScreen() {
     }
 
     const lines: string[] = []
-    lines.push(story.title)
+    lines.push(`✒️ ${story.title}`)
     lines.push('━━━━━━━━━━━━━━━━━━━━')
     lines.push('')
 
@@ -194,7 +202,7 @@ export default function StoryScreen() {
       if (Platform.OS === 'web') {
         await navigator.clipboard.writeText(fullText)
       }
-      Alert.alert('Histoire copiée', 'Tu peux la coller où tu veux.')
+      Alert.alert('📋 Histoire copiée !', 'Tu peux la coller où tu veux.')
     } catch {
       Alert.alert('Info', 'Impossible de copier automatiquement.')
     }
@@ -224,7 +232,7 @@ export default function StoryScreen() {
   }
 
   const statusConfig = story.status === 'done'
-    ? { label: 'Terminée', icon: 'checkmark-done-outline' as const, color: '#22C55E', bg: '#F0FDF4' }
+    ? { label: 'Terminée', icon: 'checkmark-done-circle-outline' as const, color: '#22C55E', bg: '#F0FDF4' }
     : story.status === 'voting'
       ? { label: 'Vote en cours', icon: 'podium-outline' as const, color: '#F59E0B', bg: '#FFFBEB' }
       : { label: 'En cours', icon: 'time-outline' as const, color: '#5B4FCF', bg: '#F5F3FF' }
@@ -321,6 +329,7 @@ export default function StoryScreen() {
                 </Text>
                 {para.turn_number === 0 && (
                   <View style={styles.openingBadge}>
+                    <Ionicons name="sparkles-outline" size={10} color="#15803D" />
                     <Text style={styles.openingBadgeText}>Ouverture</Text>
                   </View>
                 )}
@@ -368,6 +377,13 @@ export default function StoryScreen() {
           </View>
         )}
 
+        {/* ✨ NOUVEAU : Commentaires pour histoires terminées */}
+        {story.status === 'done' && (
+          <View style={styles.commentSection}>
+            <CommentSection storyId={id} />
+          </View>
+        )}
+
         <View style={{ height: 120 }} />
       </ScrollView>
 
@@ -382,7 +398,12 @@ export default function StoryScreen() {
           >
             {joining
               ? <ActivityIndicator color="#fff" />
-              : <Text style={styles.actionBtnText}>Rejoindre l'histoire</Text>
+              : (
+                <>
+                  <Ionicons name="person-add-outline" size={18} color="#fff" />
+                  <Text style={styles.actionBtnText}>Rejoindre l'histoire</Text>
+                </>
+              )
             }
           </TouchableOpacity>
         </View>
@@ -454,7 +475,7 @@ const styles = StyleSheet.create({
   },
   headerSpacer: { width: 36 },
   scroll: { padding: 20 },
-  badges: { flexDirection: 'row', gap: 8, marginBottom: 16 },
+  badges: { flexDirection: 'row', gap: 8, marginBottom: 16, flexWrap: 'wrap' },
   badge: {
     flexDirection: 'row', alignItems: 'center', gap: 5,
     backgroundColor: '#F5F3FF', paddingHorizontal: 10,
@@ -484,6 +505,7 @@ const styles = StyleSheet.create({
   paraAvatarText: { fontSize: 14, fontWeight: '700', color: '#5B4FCF' },
   paraAuthor: { fontSize: 13, fontWeight: '600', color: '#4A3F72', flex: 1 },
   openingBadge: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
     backgroundColor: '#F0FDF4', paddingHorizontal: 8,
     paddingVertical: 3, borderRadius: 8
   },
@@ -516,6 +538,21 @@ const styles = StyleSheet.create({
   shareBtnIconWrapSecondary: { backgroundColor: '#EDE8FA' },
   shareBtnTitle: { fontSize: 15, fontWeight: '700', color: '#fff' },
   shareBtnSub: { fontSize: 12, color: 'rgba(255,255,255,0.8)', marginTop: 2 },
+  commentSection: {
+    marginTop: 24,
+    backgroundColor: '#fff',
+    borderRadius: 18,
+    paddingVertical: 4,
+    paddingHorizontal: 0,
+    borderWidth: 1.5,
+    borderColor: '#E8E4F8',
+    shadowColor: '#1A1033',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
+    elevation: 1,
+    overflow: 'hidden',
+  },
   actionBar: {
     position: 'absolute', bottom: 0, left: 0, right: 0,
     padding: 16, backgroundColor: '#fff',

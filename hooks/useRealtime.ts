@@ -9,6 +9,12 @@ export function useRealtimeStory(
 ) {
   const channelRef = useRef<any>(null)
   const mountedRef = useRef(true)
+  const callbacksRef = useRef({ onParagraph, onProposal, onVote })
+
+  // Mettre à jour les callbacks sans recréer le channel
+  useEffect(() => {
+    callbacksRef.current = { onParagraph, onProposal, onVote }
+  }, [onParagraph, onProposal, onVote])
 
   useEffect(() => {
     mountedRef.current = true
@@ -20,60 +26,59 @@ export function useRealtimeStory(
   useEffect(() => {
     if (!storyId) return
 
-    // Nettoie le channel précédent s'il existe
-    if (channelRef.current) {
-      supabase.removeChannel(channelRef.current)
-      channelRef.current = null
-    }
-
-    // Créer un nouveau channel
-    const channelName = `story-${storyId}-${Date.now()}`
-    const channel = supabase
-      .channel(channelName)
-
-    // AJOUTER LES CALLBACKS AVANT LE SUBSCRIBE
-    .on('postgres_changes', {
-      event: 'INSERT',
-      schema: 'public',
-      table: 'paragraphs',
-      filter: `story_id=eq.${storyId}`
-    }, (payload) => {
-      console.log('📝 Nouveau paragraphe:', payload)
-      if (mountedRef.current) onParagraph()
-    })
-    .on('postgres_changes', {
-      event: 'INSERT',
-      schema: 'public',
-      table: 'proposals',
-      filter: `story_id=eq.${storyId}`
-    }, (payload) => {
-      console.log('💡 Nouvelle proposition:', payload)
-      if (mountedRef.current) onProposal()
-    })
-    .on('postgres_changes', {
-      event: 'INSERT',
-      schema: 'public',
-      table: 'votes',
-      filter: `story_id=eq.${storyId}`
-    }, (payload) => {
-      console.log('🗳️ Nouveau vote:', payload)
-      if (mountedRef.current) onVote()
-    })
-    .subscribe((status) => {
-      if (status === 'SUBSCRIBED') {
-        console.log(`📡 Channel ${channelName} subscribed`)
-      }
-    })
-
-    channelRef.current = channel
-
-    // Nettoyage
-    return () => {
+    // Nettoyer le channel précédent
+    const cleanup = () => {
       if (channelRef.current) {
         console.log(`🔌 Unsubscribing from ${channelRef.current.topic}`)
         supabase.removeChannel(channelRef.current)
         channelRef.current = null
       }
     }
-  }, [storyId, onParagraph, onProposal, onVote])
+
+    cleanup()
+
+    // Créer un nouveau channel avec un nom unique mais stable
+    const channelName = `story-${storyId}`
+    const channel = supabase
+      .channel(channelName)
+      .on('postgres_changes', {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'paragraphs',
+        filter: `story_id=eq.${storyId}`
+      }, () => {
+        if (mountedRef.current) {
+          callbacksRef.current.onParagraph()
+        }
+      })
+      .on('postgres_changes', {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'proposals',
+        filter: `story_id=eq.${storyId}`
+      }, () => {
+        if (mountedRef.current) {
+          callbacksRef.current.onProposal()
+        }
+      })
+      .on('postgres_changes', {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'votes',
+        filter: `story_id=eq.${storyId}`
+      }, () => {
+        if (mountedRef.current) {
+          callbacksRef.current.onVote()
+        }
+      })
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED' && mountedRef.current) {
+          console.log(`📡 Channel ${channelName} subscribed`)
+        }
+      })
+
+    channelRef.current = channel
+
+    return cleanup
+  }, [storyId])
 }

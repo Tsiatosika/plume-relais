@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import {
   View, Text, TouchableOpacity, StyleSheet,
-  ActivityIndicator, ScrollView, Platform
+  ActivityIndicator, ScrollView, Alert, Platform
 } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
 import { supabase } from '../../lib/supabase'
@@ -17,22 +17,31 @@ export default function Profile() {
   useEffect(() => {
     if (!user) return
     const loadStats = async () => {
-      const { count: total } = await supabase
-        .from('proposals').select('*', { count: 'exact', head: true })
-        .eq('author_id', user.id)
-      const { count: won } = await supabase
-        .from('proposals').select('*', { count: 'exact', head: true })
-        .eq('author_id', user.id).eq('is_winner', true)
-      setStats({ total: total ?? 0, won: won ?? 0 })
+      try {
+        const { count: total } = await supabase
+          .from('proposals').select('*', { count: 'exact', head: true })
+          .eq('author_id', user.id)
+        const { count: won } = await supabase
+          .from('proposals').select('*', { count: 'exact', head: true })
+          .eq('author_id', user.id).eq('is_winner', true)
+        setStats({ total: total ?? 0, won: won ?? 0 })
+      } catch (error) {
+        console.error('Erreur stats:', error)
+      }
       setLoading(false)
     }
     loadStats()
   }, [user])
 
   const handleSignOut = () => {
-    if (Platform.OS === 'web') {
-      if (window.confirm('Tu veux vraiment te déconnecter ?')) signOut()
-    }
+    Alert.alert(
+      'Déconnexion',
+      'Tu veux vraiment te déconnecter ?',
+      [
+        { text: 'Annuler', style: 'cancel' },
+        { text: 'Se déconnecter', onPress: () => signOut(), style: 'destructive' }
+      ]
+    )
   }
 
   const winRate = stats.total > 0
@@ -99,7 +108,7 @@ export default function Profile() {
         </View>
       </View>
 
-      {/* Badges */}
+      {/* Badges obtenus */}
       {earned.length > 0 && (
         <View style={styles.badgesSection}>
           <Text style={styles.sectionTitle}>Badges obtenus</Text>
