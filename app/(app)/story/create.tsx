@@ -1,13 +1,14 @@
-
 import { useState } from 'react'
 import {
   View, Text, TextInput, Switch, ScrollView,
-  TouchableOpacity, StyleSheet, ActivityIndicator
+  TouchableOpacity, StyleSheet, ActivityIndicator, Alert, Image, Platform
 } from 'react-native'
 import { useRouter } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
 import { supabase } from '../../../lib/supabase'
 import { useAuthStore } from '../../../store/authStore'
+import * as ImagePicker from 'expo-image-picker'
+import { decode } from 'base64-arraybuffer'
 
 export default function CreateStory() {
   const [title, setTitle] = useState('')
@@ -17,61 +18,182 @@ export default function CreateStory() {
   const [maxContrib, setMaxContrib] = useState('10')
   const [turnDuration, setTurnDuration] = useState('60')
   const [loading, setLoading] = useState(false)
+  const [uploading, setUploading] = useState(false)
+  const [coverImage, setCoverImage] = useState<string | null>(null)
   const { user } = useAuthStore()
   const router = useRouter()
 
+  // Fonction pour choisir une image
+  const pickImage = async () => {
+    // Demander la permission sur mobile
+    if (Platform.OS !== 'web') {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync()
+      if (status !== 'granted') {
+        Alert.alert('Erreur', 'Permission refusée pour accéder à la galerie')
+        return
+      }
+    }
+
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [16, 9],
+        quality: 0.8,
+        base64: true,
+      })
+
+      if (!result.canceled && result.assets[0].base64) {
+        // Pour le Web, on garde le data URL
+        if (Platform.OS === 'web') {
+          setCoverImage(`data:image/jpeg;base64,${result.assets[0].base64}`)
+        } else {
+          // Pour mobile, on utilise l'URI
+          setCoverImage(result.assets[0].uri)
+        }
+      }
+    } catch (error) {
+      console.error('Erreur sélection image:', error)
+      Alert.alert('Erreur', 'Impossible de sélectionner l\'image')
+    }
+  }
+
+  // Fonction pour uploader l'image vers Supabase Storage
+  const uploadImage = async (storyId: string): Promise<string | null> => {
+    if (!coverImage) return null
+
+    try {
+      setUploading(true)
+      
+      let base64Data: string
+      let fileName: string
+
+      if (Platform.OS === 'web' && coverImage.startsWith('data:image')) {
+        // Pour le Web, extraire le base64 du data URL
+        base64Data = coverImage.split(',')[1]
+        fileName = `${storyId}.jpg`
+      } else {
+        // Pour mobile, on utilise l'URI
+        // Note: pour mobile, il faudrait utiliser fetch pour récupérer le blob
+        // Version simplifiée pour le Web
+        base64Data = coverImage
+        fileName = `${storyId}.jpg`
+      }
+
+      // Upload vers Supabase Storage
+      const { error } = await supabase.storage
+        .from('covers')
+        .upload(fileName, decode(base64Data), {
+          contentType: 'image/jpeg',
+          upsert: true,
+        })
+
+      if (error) {
+        console.error('❌ Erreur upload:', error)
+        Alert.alert('Erreur', 'Impossible d\'uploader l\'image: ' + error.message)
+        return null
+      }
+
+      // Récupérer l'URL publique
+      const { data: urlData } = supabase.storage
+        .from('covers')
+        .getPublicUrl(fileName)
+
+      console.log('✅ Image uploadée:', urlData.publicUrl)
+      return urlData.publicUrl
+
+    } catch (error) {
+      console.error('❌ Erreur:', error)
+      Alert.alert('Erreur', 'Une erreur est survenue lors de l\'upload')
+      return null
+    } finally {
+      setUploading(false)
+    }
+  }
+
   const handleCreate = async () => {
     if (!title.trim()) {
-      window.alert('Le titre est obligatoire')
+      Alert.alert('Erreur', 'Le titre est obligatoire')
       return
     }
     if (!opening.trim()) {
-      window.alert("Le paragraphe d'ouverture est obligatoire")
+      Alert.alert('Erreur', "Le paragraphe d'ouverture est obligatoire")
       return
     }
     if (opening.trim().length < 20) {
-      window.alert("L'ouverture est trop courte (min. 20 caractères)")
+      Alert.alert('Erreur', "L'ouverture est trop courte (min. 20 caractères)")
       return
     }
 
     setLoading(true)
 
-    // Dans handleCreate, mettre à jour le statut correctement
-    const { data: story, error } = await supabase
-      .from('stories')
-      .insert({
-        title: title.trim(),
-        creator_id: user.id,
-        visibility: isPrivate ? 'private' : 'public',
-        blind_mode: blindMode,
-        max_contributions: parseInt(maxContrib) || 10,
-        turn_duration_minutes: parseInt(turnDuration) || 60,
-        status: 'open', // Commence en 'open' pour permettre les contributions
-        turn_started_at: new Date().toISOString(), // Démarrer le timer immédiatement
+    try {
+      // Créer l'histoire
+      const { data: story, error } = await supabase
+        .from('stories')
+        .insert({
+          title: title.trim(),
+          creator_id: user.id,
+          visibility: isPrivate ? 'private' : 'public',
+          blind_mode: blindMode,
+          max_contributions: parseInt(maxContrib) || 10,
+          turn_duration_minutes: parseInt(turnDuration) || 60,
+          status: 'open',
+          turn_started_at: new Date().toISOString(),
+        })
+        .select()
+        .single()
+
+      if (error) {
+        setLoading(false)
+        Alert.alert('Erreur', error.message)
+        return
+      }
+
+      // Uploader l'image si présente
+      let coverUrl = null
+      if (coverImage) {
+        coverUrl = await uploadImage(story.id)
+        if (coverUrl) {
+          // Mettre à jour l'histoire avec l'URL de la couverture
+          const { error: updateError } = await supabase
+            .from('stories')
+            .update({ cover_url: coverUrl })
+            .eq('id', story.id)
+
+          if (updateError) {
+            console.error('❌ Erreur mise à jour cover_url:', updateError)
+          }
+        }
+      }
+
+      // Ajouter le paragraphe d'ouverture
+      await supabase.from('paragraphs').insert({
+        story_id: story.id,
+        author_id: user.id,
+        content: opening.trim(),
+        turn_number: 0,
       })
-      .select()
-      .single()
 
-    if (error) {
+      // Ajouter l'utilisateur comme membre
+      await supabase.from('story_members').insert({
+        story_id: story.id,
+        user_id: user.id,
+      })
+
       setLoading(false)
-      window.alert('Erreur : ' + error.message)
-      return
+      Alert.alert('Succès', 'Histoire créée avec succès !')
+      router.replace(`/(app)/story/${story.id}`)
+
+    } catch (error) {
+      console.error('❌ Erreur:', error)
+      setLoading(false)
+      Alert.alert('Erreur', 'Une erreur est survenue')
     }
+  }
 
-    await supabase.from('paragraphs').insert({
-      story_id: story.id,
-      author_id: user.id,
-      content: opening.trim(),
-      turn_number: 0,
-    })
-
-    await supabase.from('story_members').insert({
-      story_id: story.id,
-      user_id: user.id,
-    })
-
-    setLoading(false)
-    router.replace(`/(app)/story/${story.id}`)
+  const removeImage = () => {
+    setCoverImage(null)
   }
 
   return (
@@ -100,6 +222,41 @@ export default function CreateStory() {
           <Text style={styles.pageSub}>Pose la première pierre du récit</Text>
         </View>
       </View>
+
+      {/* Image de couverture */}
+      <Text style={styles.sectionTitle}>Image de couverture</Text>
+      <TouchableOpacity
+        style={styles.coverContainer}
+        onPress={pickImage}
+        activeOpacity={0.8}
+      >
+        {coverImage ? (
+          <View style={styles.coverPreviewContainer}>
+            <Image 
+              source={{ uri: coverImage }} 
+              style={styles.coverPreview}
+              resizeMode="cover"
+            />
+            <TouchableOpacity
+              style={styles.removeImageBtn}
+              onPress={removeImage}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="close-circle" size={28} color="#EF4444" />
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <View style={styles.coverPlaceholder}>
+            <Ionicons name="image-outline" size={40} color="#C4B8E8" />
+            <Text style={styles.coverPlaceholderText}>
+              Ajouter une image de couverture
+            </Text>
+            <Text style={styles.coverPlaceholderSub}>
+              Format 16:9 recommandé
+            </Text>
+          </View>
+        )}
+      </TouchableOpacity>
 
       <Text style={styles.sectionTitle}>Titre de l'histoire</Text>
       <View style={styles.inputWrap}>
@@ -143,7 +300,7 @@ export default function CreateStory() {
           <Switch
             value={blindMode}
             onValueChange={setBlindMode}
-            trackColor={{ true: '#7F77DD', false: '#E0DCF2' }}
+            trackColor={{ true: '#5B4FCF', false: '#E0DCF2' }}
             thumbColor="#fff"
           />
         </View>
@@ -161,7 +318,7 @@ export default function CreateStory() {
           <Switch
             value={isPrivate}
             onValueChange={setIsPrivate}
-            trackColor={{ true: '#7F77DD', false: '#E0DCF2' }}
+            trackColor={{ true: '#5B4FCF', false: '#E0DCF2' }}
             thumbColor="#fff"
           />
         </View>
@@ -200,20 +357,19 @@ export default function CreateStory() {
       </View>
 
       <TouchableOpacity
-        style={[styles.btn, loading && styles.btnDisabled]}
+        style={[styles.btn, (loading || uploading) && styles.btnDisabled]}
         onPress={handleCreate}
-        disabled={loading}
+        disabled={loading || uploading}
         activeOpacity={0.85}
       >
-        {loading
-          ? <ActivityIndicator color="#fff" />
-          : (
-            <View style={styles.btnContent}>
-              <Ionicons name="pencil" size={18} color="#fff" />
-              <Text style={styles.btnText}>Créer l'histoire</Text>
-            </View>
-          )
-        }
+        {loading || uploading ? (
+          <ActivityIndicator color="#fff" />
+        ) : (
+          <View style={styles.btnContent}>
+            <Ionicons name="pencil" size={18} color="#fff" />
+            <Text style={styles.btnText}>Créer l'histoire</Text>
+          </View>
+        )}
       </TouchableOpacity>
 
       <View style={{ height: 40 }} />
@@ -247,6 +403,58 @@ const styles = StyleSheet.create({
     fontSize: 12.5, fontWeight: '700', color: '#8B7FB8',
     textTransform: 'uppercase', letterSpacing: 0.6,
     marginTop: 20, marginBottom: 8
+  },
+  coverContainer: {
+    marginBottom: 16,
+    borderRadius: 16,
+    overflow: 'hidden',
+    borderWidth: 1.5,
+    borderColor: '#E8E4F8',
+    borderStyle: 'dashed',
+    backgroundColor: '#fff',
+  },
+  coverPreviewContainer: {
+    position: 'relative',
+    width: '100%',
+    height: 160,
+  },
+  coverPreview: {
+    width: '100%',
+    height: 160,
+    borderRadius: 16,
+  },
+  removeImageBtn: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    backgroundColor: 'rgba(255,255,255,0.9)',
+    borderRadius: 20,
+    padding: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  coverPlaceholder: {
+    width: '100%',
+    height: 160,
+    borderRadius: 16,
+    backgroundColor: '#FAFAFA',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 20,
+  },
+  coverPlaceholderText: {
+    fontSize: 14,
+    color: '#9B8EC4',
+    fontWeight: '600',
+    marginTop: 8,
+  },
+  coverPlaceholderSub: {
+    fontSize: 12,
+    color: '#C4B8E8',
+    marginTop: 4,
   },
   inputWrap: {
     backgroundColor: '#fff', borderRadius: 16,

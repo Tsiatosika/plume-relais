@@ -2,7 +2,7 @@ import { useEffect, useState, useRef } from 'react'
 import {
   View, Text, FlatList, TouchableOpacity,
   StyleSheet, RefreshControl, ActivityIndicator,
-  Animated, Platform
+  Animated, Platform, Image
 } from 'react-native'
 import { useRouter } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
@@ -12,81 +12,113 @@ import { Story } from '../../types'
 
 type Tab = 'open' | 'mine' | 'done'
 
-function AnimatedStoryCard({ story, index, onPress }: {
-  story: Story; index: number; onPress: () => void
+function AnimatedStoryCard({
+  story,
+  index,
+  onPress,
+}: {
+  story: Story
+  index: number
+  onPress: () => void
 }) {
-  const translateY = useRef(new Animated.Value(24)).current
+  const translateY = useRef(new Animated.Value(30)).current
   const opacity = useRef(new Animated.Value(0)).current
   const scale = useRef(new Animated.Value(1)).current
-  const isWeb = Platform.OS === 'web'
 
   useEffect(() => {
+    const isWeb = Platform.OS === 'web'
+    
     Animated.parallel([
       Animated.timing(opacity, {
-        toValue: 1, duration: 350,
-        delay: index * 60, useNativeDriver: !isWeb,
+        toValue: 1,
+        duration: 300,
+        delay: index * 80,
+        useNativeDriver: !isWeb,
       }),
       Animated.spring(translateY, {
-        toValue: 0, delay: index * 60,
-        useNativeDriver: !isWeb, tension: 100, friction: 12,
+        toValue: 0,
+        delay: index * 80,
+        useNativeDriver: !isWeb,
+        tension: 80,
+        friction: 10,
       }),
     ]).start()
   }, [index])
 
-  const getStatus = (s: Story) => {
-    if (s.status === 'done') return { label: 'Terminée', color: '#22C55E', bg: '#F0FDF4', icon: 'checkmark-done-outline' as const }
-    if (s.status === 'voting') return { label: 'Vote ouvert', color: '#F59E0B', bg: '#FFFBEB', icon: 'podium-outline' as const }
-    return { label: 'En cours', color: '#5B4FCF', bg: '#F5F3FF', icon: 'time-outline' as const }
+  const getStatusLabel = (s: Story) => {
+    if (s.status === 'done') return '✅ Terminée'
+    if (s.status === 'voting') return '🗳️ Vote en cours'
+    return '🟢 En cours'
   }
 
-  const status = getStatus(story)
+  const onPressIn = () => {
+    const isWeb = Platform.OS === 'web'
+    Animated.spring(scale, {
+      toValue: 0.97,
+      useNativeDriver: !isWeb,
+      tension: 200,
+      friction: 10,
+    }).start()
+  }
+
+  const onPressOut = () => {
+    const isWeb = Platform.OS === 'web'
+    Animated.spring(scale, {
+      toValue: 1,
+      useNativeDriver: !isWeb,
+      tension: 200,
+      friction: 10,
+    }).start()
+  }
 
   return (
-    <Animated.View style={[{ opacity, transform: [{ translateY }, { scale }] }]}>
+    <Animated.View
+      style={[
+        cardStyles.wrapper,
+        {
+          opacity,
+          transform: [{ translateY }, { scale }],
+        },
+      ]}
+    >
       <TouchableOpacity
-        style={styles2.card}
+        style={cardStyles.card}
         onPress={onPress}
         activeOpacity={1}
-        onPressIn={() => {
-          Animated.spring(scale, { toValue: 0.98, useNativeDriver: !isWeb, tension: 300, friction: 10 }).start()
-        }}
-        onPressOut={() => {
-          Animated.spring(scale, { toValue: 1, useNativeDriver: !isWeb, tension: 300, friction: 10 }).start()
-        }}
+        onPressIn={onPressIn}
+        onPressOut={onPressOut}
       >
-        {/* Accent bar */}
-        <View style={[styles2.accentBar, { backgroundColor: status.color }]} />
-
-        <View style={styles2.cardContent}>
-          <View style={styles2.cardTop}>
-            <Text style={styles2.storyTitle} numberOfLines={2}>
+        {/* Image de couverture */}
+        {story.cover_url && (
+          <Image 
+            source={{ uri: story.cover_url }} 
+            style={cardStyles.coverImage}
+            resizeMode="cover"
+          />
+        )}
+        
+        <View style={cardStyles.cardContent}>
+          <View style={cardStyles.cardHeader}>
+            <Text style={cardStyles.storyTitle} numberOfLines={2}>
               {story.title}
             </Text>
-            <View style={styles2.badges}>
+            <View style={cardStyles.badgeContainer}>
               {story.blind_mode && (
-                <View style={styles2.iconBadge}>
-                  <Ionicons name="eye-off-outline" size={13} color="#5B4FCF" />
+                <View style={cardStyles.blindBadge}>
+                  <Ionicons name="eye-off-outline" size={12} color="#5B4FCF" />
                 </View>
               )}
               {story.visibility === 'private' && (
-                <View style={[styles2.iconBadge, styles2.privateBadge]}>
-                  <Ionicons name="lock-closed" size={12} color="#C2740C" />
+                <View style={cardStyles.privateBadge}>
+                  <Ionicons name="lock-closed-outline" size={12} color="#F59E0B" />
                 </View>
               )}
             </View>
           </View>
-
-          <View style={styles2.cardBottom}>
-            <View style={[styles2.statusPill, { backgroundColor: status.bg }]}>
-              <Ionicons name={status.icon} size={12} color={status.color} />
-              <Text style={[styles2.statusText, { color: status.color }]}>
-                {status.label}
-              </Text>
-            </View>
-            <Text style={styles2.dateText}>
-              {new Date(story.created_at).toLocaleDateString('fr-FR', {
-                day: 'numeric', month: 'short'
-              })}
+          <View style={cardStyles.cardFooter}>
+            <Text style={cardStyles.statusText}>{getStatusLabel(story)}</Text>
+            <Text style={cardStyles.dateText}>
+              {new Date(story.created_at).toLocaleDateString('fr-FR')}
             </Text>
           </View>
         </View>
@@ -95,41 +127,67 @@ function AnimatedStoryCard({ story, index, onPress }: {
   )
 }
 
-const styles2 = StyleSheet.create({
-  card: {
-    marginHorizontal: 16, marginTop: 12,
-    backgroundColor: '#fff', borderRadius: 18,
-    flexDirection: 'row', overflow: 'hidden',
-    shadowColor: '#1A1033',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.07, shadowRadius: 12, elevation: 3,
+const cardStyles = StyleSheet.create({
+  wrapper: {
+    marginHorizontal: 12,
+    marginTop: 12,
   },
-  accentBar: { width: 4, borderRadius: 4 },
-  cardContent: { flex: 1, padding: 16 },
-  cardTop: {
-    flexDirection: 'row', justifyContent: 'space-between',
-    alignItems: 'flex-start', marginBottom: 12,
+  card: {
+    backgroundColor: '#fff',
+    borderRadius: 14,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#EBEBEB',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 6,
+    elevation: 2,
+  },
+  coverImage: {
+    width: '100%',
+    height: 140,
+    backgroundColor: '#F0ECF8',
+  },
+  cardContent: {
+    padding: 16,
+  },
+  cardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 10,
   },
   storyTitle: {
-    fontSize: 16, fontWeight: '700', color: '#1A1033',
-    flex: 1, marginRight: 8, lineHeight: 22,
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#1A1033',
+    flex: 1,
+    marginRight: 8,
   },
-  badges: { flexDirection: 'row', gap: 4 },
-  iconBadge: {
-    width: 26, height: 26, borderRadius: 8,
-    backgroundColor: '#F5F3FF', alignItems: 'center', justifyContent: 'center',
+  badgeContainer: {
+    flexDirection: 'row',
+    gap: 4,
   },
-  privateBadge: { backgroundColor: '#FFF7ED' },
-  cardBottom: {
-    flexDirection: 'row', justifyContent: 'space-between',
+  blindBadge: {
+    backgroundColor: '#EEEDFE',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 10,
+  },
+  privateBadge: {
+    backgroundColor: '#FFFBEB',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 10,
+  },
+  cardFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
   },
-  statusPill: {
-    flexDirection: 'row', alignItems: 'center', gap: 5,
-    paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20,
-  },
-  statusText: { fontSize: 12, fontWeight: '600' },
-  dateText: { fontSize: 12, color: '#9B8EC4' },
+  statusText: { fontSize: 12, color: '#666' },
+  dateText: { fontSize: 12, color: '#AAA' },
 })
 
 export default function Feed() {
@@ -141,80 +199,142 @@ export default function Feed() {
   const router = useRouter()
 
   const loadStories = async () => {
-    if (!user) { setLoading(false); return }
+    if (!user) {
+      setLoading(false)
+      return
+    }
+
     setLoading(true)
     let data: Story[] = []
 
     try {
       if (tab === 'open') {
-        const { data: result } = await supabase
-          .from('stories').select('*')
-          .eq('status', 'open').eq('visibility', 'public')
+        const { data: result, error } = await supabase
+          .from('stories')
+          .select('*')
+          .eq('status', 'open')
+          .eq('visibility', 'public')
           .order('created_at', { ascending: false })
-        data = result ?? []
-      } else if (tab === 'mine') {
-        const { data: members } = await supabase
-          .from('story_members').select('story_id').eq('user_id', user.id)
-        const ids = members?.map(m => m.story_id) ?? []
-        if (ids.length > 0) {
-          const { data: result } = await supabase
-            .from('stories').select('*').in('id', ids)
-            .order('created_at', { ascending: false })
+
+        if (error) {
+          console.error('Erreur chargement histoires ouvertes:', error)
+        } else {
           data = result ?? []
         }
+      } else if (tab === 'mine') {
+        const { data: members, error: memberError } = await supabase
+          .from('story_members')
+          .select('story_id')
+          .eq('user_id', user.id)
+
+        if (memberError) {
+          console.error('Erreur chargement membres:', memberError)
+        } else {
+          const ids = members?.map(m => m.story_id) ?? []
+          if (ids.length > 0) {
+            const { data: result, error } = await supabase
+              .from('stories')
+              .select('*')
+              .in('id', ids)
+              .order('created_at', { ascending: false })
+
+            if (error) {
+              console.error('Erreur chargement mes histoires:', error)
+            } else {
+              data = result ?? []
+            }
+          }
+        }
       } else {
-        const { data: result } = await supabase
-          .from('stories').select('*').eq('status', 'done')
+        const { data: result, error } = await supabase
+          .from('stories')
+          .select('*')
+          .eq('status', 'done')
+          .or(`visibility.eq.public,creator_id.eq.${user.id}`)
           .order('created_at', { ascending: false })
-        data = result ?? []
+
+        if (error) {
+          console.error('Erreur chargement histoires terminées:', error)
+        } else {
+          data = result ?? []
+        }
       }
-    } catch (e) { console.error(e) }
+    } catch (error) {
+      console.error('Erreur inattendue:', error)
+    }
 
     setStories(data)
     setLoading(false)
   }
 
-  useEffect(() => { loadStories() }, [tab])
+  useEffect(() => {
+    loadStories()
+  }, [tab])
 
-  const tabs: { key: Tab; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
-    { key: 'open', label: 'Explorer', icon: 'compass-outline' },
-    { key: 'mine', label: 'Mes histoires', icon: 'create-outline' },
-    { key: 'done', label: 'Terminées', icon: 'flag-outline' },
-  ]
-
-  const emptyConfig = {
-    open: { icon: 'library-outline' as const, text: 'Aucune histoire ouverte.', action: 'Créer la première !', onAction: () => router.push('/(app)/story/create') },
-    mine: { icon: 'create-outline' as const, text: "Tu ne participes à aucune histoire.", action: 'Rejoindre une histoire', onAction: () => setTab('open') },
-    done: { icon: 'flag-outline' as const, text: 'Aucune histoire terminée.', action: null, onAction: null },
+  const onRefresh = async () => {
+    setRefreshing(true)
+    await loadStories()
+    setRefreshing(false)
   }
 
-  const empty = emptyConfig[tab]
+  const getEmptyMessage = () => {
+    if (tab === 'open') return 'Aucune histoire ouverte pour le moment.'
+    if (tab === 'mine') return "Tu ne participes à aucune histoire."
+    return 'Aucune histoire terminée.'
+  }
+
+  const getEmptyIcon = () => {
+    if (tab === 'open') return '📖'
+    if (tab === 'mine') return '✍️'
+    return '🏁'
+  }
+
+  const tabs: { key: Tab; label: string }[] = [
+    { key: 'open', label: 'Rejoindre' },
+    { key: 'mine', label: 'Mes histoires' },
+    { key: 'done', label: 'Terminées' },
+  ]
+
+  const renderEmptyState = () => (
+    <View style={styles.empty}>
+      <Text style={styles.emptyIcon}>{getEmptyIcon()}</Text>
+      <Text style={styles.emptyText}>{getEmptyMessage()}</Text>
+      {tab === 'open' && (
+        <TouchableOpacity
+          style={styles.emptyBtn}
+          onPress={() => router.push('/(app)/story/create')}
+        >
+          <Text style={styles.emptyBtnText}>Créer la première !</Text>
+        </TouchableOpacity>
+      )}
+      {tab === 'mine' && (
+        <TouchableOpacity
+          style={styles.emptyBtn}
+          onPress={() => setTab('open')}
+        >
+          <Text style={styles.emptyBtnText}>Rejoindre une histoire</Text>
+        </TouchableOpacity>
+      )}
+    </View>
+  )
+
+  const renderItem = ({ item, index }: { item: Story; index: number }) => (
+    <AnimatedStoryCard
+      story={item}
+      index={index}
+      onPress={() => router.push(`/(app)/story/${item.id}`)}
+    />
+  )
 
   return (
     <View style={styles.container}>
-      {/* Header */}
-      <View style={styles.headerSection}>
-        <View style={styles.headerTitleRow}>
-          <Ionicons name="pencil" size={20} color="#5B4FCF" style={{ transform: [{ rotate: '-45deg' }] }} />
-          <Text style={styles.headerTitle}>Plume Relais</Text>
-        </View>
-        <Text style={styles.headerSub}>Histoires collaboratives</Text>
-      </View>
-
-      {/* Tabs */}
       <View style={styles.tabBar}>
         {tabs.map(t => (
           <TouchableOpacity
             key={t.key}
             style={[styles.tab, tab === t.key && styles.tabActive]}
             onPress={() => setTab(t.key)}
-            activeOpacity={0.7}
           >
-            <Ionicons
-              name={t.icon}
-              size={15}
-              color={tab === t.key ? '#fff' : '#7B6FA0'}
-            />
             <Text style={[styles.tabText, tab === t.key && styles.tabTextActive]}>
               {t.label}
             </Text>
@@ -225,7 +345,6 @@ export default function Feed() {
       {loading ? (
         <View style={styles.loadingContainer}>
           <ActivityIndicator color="#5B4FCF" size="large" />
-          <Text style={styles.loadingText}>Chargement...</Text>
         </View>
       ) : (
         <FlatList
@@ -237,38 +356,21 @@ export default function Feed() {
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
-              onRefresh={async () => { setRefreshing(true); await loadStories(); setRefreshing(false) }}
-              colors={['#5B4FCF']} tintColor="#5B4FCF"
+              onRefresh={onRefresh}
+              colors={['#5B4FCF']}
+              tintColor="#5B4FCF"
             />
           }
-          ListEmptyComponent={
-            <View style={styles.empty}>
-              <View style={styles.emptyIconWrap}>
-                <Ionicons name={empty.icon} size={36} color="#B8AED8" />
-              </View>
-              <Text style={styles.emptyTitle}>{empty.text}</Text>
-              {empty.action && (
-                <TouchableOpacity style={styles.emptyBtn} onPress={empty.onAction!} activeOpacity={0.85}>
-                  <Text style={styles.emptyBtnText}>{empty.action}</Text>
-                </TouchableOpacity>
-              )}
-            </View>
-          }
-          renderItem={({ item, index }) => (
-            <AnimatedStoryCard
-              story={item} index={index}
-              onPress={() => router.push(`/(app)/story/${item.id}`)}
-            />
-          )}
+          ListEmptyComponent={renderEmptyState}
+          renderItem={renderItem}
           showsVerticalScrollIndicator={false}
         />
       )}
 
-      {/* FAB */}
       <TouchableOpacity
         style={styles.fab}
         onPress={() => router.push('/(app)/story/create')}
-        activeOpacity={0.85}
+        activeOpacity={0.8}
       >
         <Ionicons name="add" size={30} color="#fff" />
       </TouchableOpacity>
@@ -277,63 +379,92 @@ export default function Feed() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F7F5FF' },
-  headerSection: {
-    paddingHorizontal: 20, paddingTop: 20, paddingBottom: 16,
-    backgroundColor: '#fff',
-    borderBottomWidth: 1, borderBottomColor: '#F0ECF8',
-  },
-  headerTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  headerTitle: {
-    fontFamily: 'Georgia',
-    fontSize: 23, fontWeight: '700', color: '#1A1033', letterSpacing: -0.5,
-  },
-  headerSub: { fontSize: 13, color: '#9B8EC4', marginTop: 2, marginLeft: 28 },
-  tabBar: {
-    flexDirection: 'row', paddingHorizontal: 16,
-    paddingVertical: 12, gap: 8, backgroundColor: '#fff',
-    borderBottomWidth: 1, borderBottomColor: '#F0ECF8',
-  },
-  tab: {
-    flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5,
-    paddingVertical: 9, borderRadius: 12,
+  container: {
+    flex: 1,
     backgroundColor: '#F7F5FF',
   },
-  tabActive: { backgroundColor: '#5B4FCF' },
-  tabText: { fontSize: 11, color: '#7B6FA0', fontWeight: '600' },
-  tabTextActive: { color: '#fff' },
+  tabBar: {
+    flexDirection: 'row',
+    padding: 12,
+    gap: 8,
+    backgroundColor: '#fff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#F0ECF8',
+  },
+  tab: {
+    flex: 1,
+    paddingVertical: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#E0DCF2',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+  },
+  tabActive: {
+    backgroundColor: '#5B4FCF',
+    borderColor: '#5B4FCF',
+  },
+  tabText: {
+    fontSize: 12,
+    color: '#666',
+    fontWeight: '500',
+  },
+  tabTextActive: {
+    color: '#fff',
+  },
   loadingContainer: {
-    flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12,
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  loadingText: { color: '#9B8EC4', fontSize: 14 },
-  emptyContainer: { flex: 1 },
-  listContainer: { paddingBottom: 100, paddingTop: 4 },
+  emptyContainer: {
+    flex: 1,
+  },
+  listContainer: {
+    paddingBottom: 100,
+  },
   empty: {
-    flex: 1, alignItems: 'center', justifyContent: 'center',
-    padding: 40, marginTop: 60,
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 40,
+    marginTop: 60,
   },
-  emptyIconWrap: {
-    width: 84, height: 84, borderRadius: 26,
-    backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center',
-    marginBottom: 18, borderWidth: 1.5, borderColor: '#E8E4F8',
+  emptyIcon: {
+    fontSize: 48,
+    marginBottom: 16,
   },
-  emptyTitle: {
-    fontSize: 16, color: '#7B6FA0', textAlign: 'center',
-    marginBottom: 24, lineHeight: 24,
+  emptyText: {
+    fontSize: 15,
+    color: '#9B8EC4',
+    textAlign: 'center',
+    marginBottom: 20,
   },
   emptyBtn: {
-    backgroundColor: '#5B4FCF', paddingHorizontal: 28,
-    paddingVertical: 14, borderRadius: 14,
-    shadowColor: '#5B4FCF', shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3, shadowRadius: 12, elevation: 4,
+    backgroundColor: '#5B4FCF',
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 10,
   },
-  emptyBtnText: { color: '#fff', fontWeight: '700', fontSize: 15 },
+  emptyBtnText: {
+    color: '#fff',
+    fontWeight: '600',
+    fontSize: 14,
+  },
   fab: {
-    position: 'absolute', bottom: 28, right: 24,
-    width: 58, height: 58, borderRadius: 20,
-    backgroundColor: '#5B4FCF', alignItems: 'center',
-    justifyContent: 'center', elevation: 8,
-    shadowColor: '#5B4FCF', shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.4, shadowRadius: 16,
+    position: 'absolute',
+    bottom: 24,
+    right: 24,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: '#5B4FCF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    elevation: 5,
+    shadowColor: '#5B4FCF',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
   },
 })

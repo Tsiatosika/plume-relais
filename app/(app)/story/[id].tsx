@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import {
   View, Text, ScrollView, TouchableOpacity,
-  StyleSheet, ActivityIndicator, RefreshControl, Alert, Platform
+  StyleSheet, ActivityIndicator, RefreshControl, Alert, Platform, Image
 } from 'react-native'
 import { useLocalSearchParams, useRouter, useNavigation } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
@@ -179,6 +179,12 @@ export default function StoryScreen() {
 
     const lines: string[] = []
     lines.push(`✒️ ${story.title}`)
+    
+    // Ajouter l'URL de l'image de couverture si elle existe
+    if (story.cover_url) {
+      lines.push(`📷 Image: ${story.cover_url}`)
+    }
+    
     lines.push('━━━━━━━━━━━━━━━━━━━━')
     lines.push('')
 
@@ -194,7 +200,10 @@ export default function StoryScreen() {
     })
 
     lines.push('━━━━━━━━━━━━━━━━━━━━')
-    lines.push('Écrit à plusieurs mains sur Plume Relais')
+    lines.push('📖 Écrit à plusieurs mains sur Plume Relais')
+    if (story.cover_url) {
+      lines.push('🖼️ Avec image de couverture')
+    }
 
     const fullText = lines.join('\n')
 
@@ -288,6 +297,17 @@ export default function StoryScreen() {
           </View>
         </View>
 
+        {/* ✨ NOUVEAU : Image de couverture */}
+        {story.cover_url && (
+          <View style={styles.coverContainer}>
+            <Image 
+              source={{ uri: story.cover_url }} 
+              style={styles.coverImage}
+              resizeMode="cover"
+            />
+          </View>
+        )}
+
         {/* Compteur de temps */}
         {story.status === 'open' && isMember && (
           <TurnTimer
@@ -377,7 +397,7 @@ export default function StoryScreen() {
           </View>
         )}
 
-        {/* ✨ NOUVEAU : Commentaires pour histoires terminées */}
+        {/* Commentaires pour histoires terminées */}
         {story.status === 'done' && (
           <View style={styles.commentSection}>
             <CommentSection storyId={id} />
@@ -482,6 +502,19 @@ const styles = StyleSheet.create({
     paddingVertical: 6, borderRadius: 10
   },
   badgeText: { fontSize: 12, color: '#5B4FCF', fontWeight: '600' },
+  coverContainer: {
+    marginBottom: 16,
+    borderRadius: 16,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#E8E4F8',
+    backgroundColor: '#F0ECF8',
+  },
+  coverImage: {
+    width: '100%',
+    height: 180,
+    backgroundColor: '#F0ECF8',
+  },
   blindWarning: {
     flexDirection: 'row', alignItems: 'flex-start', gap: 8,
     backgroundColor: '#FFFBEB', borderRadius: 14, padding: 14,
