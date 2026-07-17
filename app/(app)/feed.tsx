@@ -9,8 +9,8 @@ import { Ionicons } from '@expo/vector-icons'
 import { supabase } from '../../lib/supabase'
 import { useAuthStore } from '../../store/authStore'
 import { Story } from '../../types'
-import { useReputation } from '../../hooks/useReputation'
 import BadgeSystem from '../../components/BadgeSystem'
+import { useReputation } from '../../hooks/useReputation'
 
 type Tab = 'open' | 'mine' | 'done'
 
@@ -27,23 +27,23 @@ function AnimatedStoryCard({
   const opacity = useRef(new Animated.Value(0)).current
   const scale = useRef(new Animated.Value(1)).current
 
-  // Récupérer les badges du créateur
   const { badges, userBadges, loading } = useReputation(story.creator_id)
 
   useEffect(() => {
+    // CORRECTION : Désactiver useNativeDriver sur le Web
     const isWeb = Platform.OS === 'web'
     
     Animated.parallel([
       Animated.timing(opacity, {
         toValue: 1,
         duration: 300,
-        delay: index * 80,
-        useNativeDriver: !isWeb,
+        delay: Math.min(index * 80, 400),
+        useNativeDriver: !isWeb, // ← Désactivé sur Web
       }),
       Animated.spring(translateY, {
         toValue: 0,
-        delay: index * 80,
-        useNativeDriver: !isWeb,
+        delay: Math.min(index * 80, 400),
+        useNativeDriver: !isWeb, // ← Désactivé sur Web
         tension: 80,
         friction: 10,
       }),
@@ -60,7 +60,7 @@ function AnimatedStoryCard({
     const isWeb = Platform.OS === 'web'
     Animated.spring(scale, {
       toValue: 0.97,
-      useNativeDriver: !isWeb,
+      useNativeDriver: !isWeb, // ← Désactivé sur Web
       tension: 200,
       friction: 10,
     }).start()
@@ -70,7 +70,7 @@ function AnimatedStoryCard({
     const isWeb = Platform.OS === 'web'
     Animated.spring(scale, {
       toValue: 1,
-      useNativeDriver: !isWeb,
+      useNativeDriver: !isWeb, // ← Désactivé sur Web
       tension: 200,
       friction: 10,
     }).start()
@@ -93,7 +93,6 @@ function AnimatedStoryCard({
         onPressIn={onPressIn}
         onPressOut={onPressOut}
       >
-        {/* Image de couverture */}
         {story.cover_url && (
           <Image 
             source={{ uri: story.cover_url }} 

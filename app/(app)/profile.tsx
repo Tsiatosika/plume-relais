@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import {
   View, Text, TouchableOpacity, StyleSheet,
-  ActivityIndicator, ScrollView, Alert
+  ActivityIndicator, ScrollView, Modal, Pressable
 } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
 import { supabase } from '../../lib/supabase'
@@ -15,8 +15,8 @@ export default function Profile() {
   const { user, profile, signOut } = useAuthStore()
   const [stats, setStats] = useState<Stats>({ total: 0, won: 0 })
   const [loading, setLoading] = useState(true)
+  const [modalVisible, setModalVisible] = useState(false)
   
-  // Utiliser le hook de réputation
   const { 
     stats: repStats, 
     badges, 
@@ -44,22 +44,15 @@ export default function Profile() {
     loadStats()
   }, [user])
 
-  // Vérifier les badges après le chargement
   useEffect(() => {
     if (!repLoading && repStats) {
       checkAndAwardBadges()
     }
   }, [repLoading, repStats])
 
-  const handleSignOut = () => {
-    Alert.alert(
-      'Déconnexion',
-      'Tu veux vraiment te déconnecter ?',
-      [
-        { text: 'Annuler', style: 'cancel' },
-        { text: 'Se déconnecter', onPress: () => signOut(), style: 'destructive' }
-      ]
-    )
+  const handleSignOut = async () => {
+    setModalVisible(false)
+    await signOut()
   }
 
   const winRate = stats.total > 0
@@ -78,102 +71,156 @@ export default function Profile() {
   const totalBadges = badges.length
 
   return (
-    <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
-      {/* Hero profil */}
-      <View style={styles.hero}>
-        <View style={styles.avatarRing}>
-          <View style={styles.avatar}>
-            <Text style={styles.avatarText}>
-              {profile?.pseudo?.[0]?.toUpperCase() ?? '?'}
+    <View style={styles.container}>
+      <ScrollView showsVerticalScrollIndicator={false}>
+        {/* Hero profil */}
+        <View style={styles.hero}>
+          <View style={styles.avatarRing}>
+            <View style={styles.avatar}>
+              <Text style={styles.avatarText}>
+                {profile?.pseudo?.[0]?.toUpperCase() ?? '?'}
+              </Text>
+            </View>
+          </View>
+          <Text style={styles.pseudo}>{profile?.pseudo ?? 'Utilisateur'}</Text>
+          <Text style={styles.email}>{user?.email}</Text>
+          
+          {/* Réputation */}
+          <View style={styles.repBadge}>
+            <Ionicons name="star" size={16} color="#F59E0B" />
+            <Text style={styles.repText}>
+              {repStats?.reputation || 0} points de réputation
+            </Text>
+          </View>
+
+          {/* Badges count */}
+          <View style={styles.badgeCountContainer}>
+            <Ionicons name="ribbon-outline" size={14} color="#5B4FCF" />
+            <Text style={styles.badgeCountText}>
+              {earnedCount} badge{earnedCount !== 1 ? 's' : ''} débloqué{earnedCount !== 1 ? 's' : ''} sur {totalBadges}
             </Text>
           </View>
         </View>
-        <Text style={styles.pseudo}>{profile?.pseudo ?? 'Utilisateur'}</Text>
-        <Text style={styles.email}>{user?.email}</Text>
-        
-        {/* Réputation */}
-        <View style={styles.repBadge}>
-          <Ionicons name="star" size={16} color="#F59E0B" />
-          <Text style={styles.repText}>
-            {repStats?.reputation || 0} points de réputation
-          </Text>
-        </View>
 
-        {/* Badges count */}
-        <View style={styles.badgeCountContainer}>
-          <Ionicons name="ribbon-outline" size={14} color="#5B4FCF" />
-          <Text style={styles.badgeCountText}>
-            {earnedCount} badge{earnedCount !== 1 ? 's' : ''} débloqué{earnedCount !== 1 ? 's' : ''} sur {totalBadges}
-          </Text>
-        </View>
-      </View>
-
-      {/* Badges */}
-      {badges.length > 0 && (
-        <View style={styles.badgesSection}>
-          <Text style={styles.sectionTitle}>🏅 Badges</Text>
-          <BadgeSystem badges={badges} userBadges={userBadges} />
-        </View>
-      )}
-
-      {/* Stats */}
-      <View style={styles.statsSection}>
-        <Text style={styles.sectionTitle}>Statistiques</Text>
-        <View style={styles.statsGrid}>
-          <View style={styles.statCard}>
-            <Text style={styles.statNumber}>{stats.total}</Text>
-            <Text style={styles.statLabel}>Propositions</Text>
+        {/* Badges */}
+        {badges.length > 0 && (
+          <View style={styles.badgesSection}>
+            <Text style={styles.sectionTitle}>🏅 Badges</Text>
+            <BadgeSystem badges={badges} userBadges={userBadges} />
           </View>
-          <View style={[styles.statCard, styles.statCardAccent]}>
-            <Text style={[styles.statNumber, styles.statNumberWhite]}>
-              {stats.won}
+        )}
+
+        {/* Stats */}
+        <View style={styles.statsSection}>
+          <Text style={styles.sectionTitle}>Statistiques</Text>
+          <View style={styles.statsGrid}>
+            <View style={styles.statCard}>
+              <Text style={styles.statNumber}>{stats.total}</Text>
+              <Text style={styles.statLabel}>Propositions</Text>
+            </View>
+            <View style={[styles.statCard, styles.statCardAccent]}>
+              <Text style={[styles.statNumber, styles.statNumberWhite]}>
+                {stats.won}
+              </Text>
+              <Text style={[styles.statLabel, styles.statLabelWhite]}>
+                Retenues
+              </Text>
+            </View>
+            <View style={styles.statCard}>
+              <Text style={styles.statNumber}>{winRate}%</Text>
+              <Text style={styles.statLabel}>Taux succès</Text>
+            </View>
+          </View>
+        </View>
+
+        {/* Stats détaillées */}
+        <View style={styles.detailedStats}>
+          <Text style={styles.sectionTitle}>📊 Détails</Text>
+          <View style={styles.detailGrid}>
+            <View style={styles.detailItem}>
+              <Ionicons name="create-outline" size={18} color="#5B4FCF" />
+              <Text style={styles.detailLabel}>Histoires créées</Text>
+              <Text style={styles.detailValue}>{repStats?.stories_created || 0}</Text>
+            </View>
+            <View style={styles.detailItem}>
+              <Ionicons name="people-outline" size={18} color="#5B4FCF" />
+              <Text style={styles.detailLabel}>Participations</Text>
+              <Text style={styles.detailValue}>{repStats?.stories_participated || 0}</Text>
+            </View>
+            <View style={styles.detailItem}>
+              <Ionicons name="thumbs-up-outline" size={18} color="#5B4FCF" />
+              <Text style={styles.detailLabel}>Votes reçus</Text>
+              <Text style={styles.detailValue}>{repStats?.votes_received || 0}</Text>
+            </View>
+            <View style={styles.detailItem}>
+              <Ionicons name="chatbubble-outline" size={18} color="#5B4FCF" />
+              <Text style={styles.detailLabel}>Commentaires</Text>
+              <Text style={styles.detailValue}>{repStats?.comments_made || 0}</Text>
+            </View>
+          </View>
+        </View>
+
+        {/* Déconnexion avec Modal */}
+        <TouchableOpacity 
+          style={styles.signOutBtn} 
+          onPress={() => setModalVisible(true)} 
+          activeOpacity={0.8}
+        >
+          <Ionicons name="log-out-outline" size={17} color="#EF4444" />
+          <Text style={styles.signOutText}>Se déconnecter</Text>
+        </TouchableOpacity>
+
+        <View style={{ height: 40 }} />
+      </ScrollView>
+
+      {/* Modal de confirmation de déconnexion */}
+      <Modal
+        animationType="fade"
+        transparent={true}
+        visible={modalVisible}
+        onRequestClose={() => setModalVisible(false)}
+      >
+        <Pressable 
+          style={styles.modalOverlay} 
+          onPress={() => setModalVisible(false)}
+        >
+          <View style={styles.modalContent}>
+            {/* Icon */}
+            <View style={styles.modalIconContainer}>
+              <Ionicons name="log-out-outline" size={40} color="#EF4444" />
+            </View>
+            
+            {/* Title */}
+            <Text style={styles.modalTitle}>Déconnexion</Text>
+            
+            {/* Description */}
+            <Text style={styles.modalDescription}>
+              Tu veux vraiment te déconnecter de ton compte ?
             </Text>
-            <Text style={[styles.statLabel, styles.statLabelWhite]}>
-              Retenues
-            </Text>
+            
+            {/* Buttons */}
+            <View style={styles.modalButtons}>
+              <TouchableOpacity
+                style={[styles.modalBtn, styles.modalBtnCancel]}
+                onPress={() => setModalVisible(false)}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.modalBtnCancelText}>Annuler</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity
+                style={[styles.modalBtn, styles.modalBtnConfirm]}
+                onPress={handleSignOut}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="log-out-outline" size={18} color="#fff" />
+                <Text style={styles.modalBtnConfirmText}>Se déconnecter</Text>
+              </TouchableOpacity>
+            </View>
           </View>
-          <View style={styles.statCard}>
-            <Text style={styles.statNumber}>{winRate}%</Text>
-            <Text style={styles.statLabel}>Taux succès</Text>
-          </View>
-        </View>
-      </View>
-
-      {/* Stats détaillées */}
-      <View style={styles.detailedStats}>
-        <Text style={styles.sectionTitle}>📊 Détails</Text>
-        <View style={styles.detailGrid}>
-          <View style={styles.detailItem}>
-            <Ionicons name="create-outline" size={18} color="#5B4FCF" />
-            <Text style={styles.detailLabel}>Histoires créées</Text>
-            <Text style={styles.detailValue}>{repStats?.stories_created || 0}</Text>
-          </View>
-          <View style={styles.detailItem}>
-            <Ionicons name="people-outline" size={18} color="#5B4FCF" />
-            <Text style={styles.detailLabel}>Participations</Text>
-            <Text style={styles.detailValue}>{repStats?.stories_participated || 0}</Text>
-          </View>
-          <View style={styles.detailItem}>
-            <Ionicons name="thumbs-up-outline" size={18} color="#5B4FCF" />
-            <Text style={styles.detailLabel}>Votes reçus</Text>
-            <Text style={styles.detailValue}>{repStats?.votes_received || 0}</Text>
-          </View>
-          <View style={styles.detailItem}>
-            <Ionicons name="chatbubble-outline" size={18} color="#5B4FCF" />
-            <Text style={styles.detailLabel}>Commentaires</Text>
-            <Text style={styles.detailValue}>{repStats?.comments_made || 0}</Text>
-          </View>
-        </View>
-      </View>
-
-      {/* Déconnexion */}
-      <TouchableOpacity style={styles.signOutBtn} onPress={handleSignOut} activeOpacity={0.8}>
-        <Ionicons name="log-out-outline" size={17} color="#EF4444" />
-        <Text style={styles.signOutText}>Se déconnecter</Text>
-      </TouchableOpacity>
-
-      <View style={{ height: 40 }} />
-    </ScrollView>
+        </Pressable>
+      </Modal>
+    </View>
   )
 }
 
@@ -277,4 +324,85 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFF5F5',
   },
   signOutText: { color: '#EF4444', fontWeight: '700', fontSize: 15 },
+  // Modal styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalContent: {
+    backgroundColor: '#fff',
+    borderRadius: 24,
+    padding: 28,
+    width: '85%',
+    maxWidth: 380,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.25,
+    shadowRadius: 20,
+    elevation: 8,
+  },
+  modalIconContainer: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    backgroundColor: '#FFF5F5',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 16,
+    borderWidth: 2,
+    borderColor: '#FCA5A5',
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#1A1033',
+    marginBottom: 8,
+  },
+  modalDescription: {
+    fontSize: 14,
+    color: '#9B8EC4',
+    textAlign: 'center',
+    marginBottom: 24,
+    lineHeight: 20,
+  },
+  modalButtons: {
+    flexDirection: 'row',
+    gap: 12,
+    width: '100%',
+  },
+  modalBtn: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 8,
+  },
+  modalBtnCancel: {
+    backgroundColor: '#F5F3FF',
+    borderWidth: 1.5,
+    borderColor: '#E8E4F8',
+  },
+  modalBtnCancelText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#9B8EC4',
+  },
+  modalBtnConfirm: {
+    backgroundColor: '#EF4444',
+    shadowColor: '#EF4444',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 12,
+    elevation: 4,
+  },
+  modalBtnConfirmText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#fff',
+  },
 })
