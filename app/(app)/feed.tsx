@@ -9,6 +9,8 @@ import { Ionicons } from '@expo/vector-icons'
 import { supabase } from '../../lib/supabase'
 import { useAuthStore } from '../../store/authStore'
 import { Story } from '../../types'
+import { useReputation } from '../../hooks/useReputation'
+import BadgeSystem from '../../components/BadgeSystem'
 
 type Tab = 'open' | 'mine' | 'done'
 
@@ -24,6 +26,9 @@ function AnimatedStoryCard({
   const translateY = useRef(new Animated.Value(30)).current
   const opacity = useRef(new Animated.Value(0)).current
   const scale = useRef(new Animated.Value(1)).current
+
+  // Récupérer les badges du créateur
+  const { badges, userBadges, loading } = useReputation(story.creator_id)
 
   useEffect(() => {
     const isWeb = Platform.OS === 'web'
@@ -115,6 +120,18 @@ function AnimatedStoryCard({
               )}
             </View>
           </View>
+          
+          {/* Badges du créateur */}
+          {!loading && badges.length > 0 && (
+            <View style={cardStyles.creatorBadges}>
+              <BadgeSystem 
+                badges={badges} 
+                userBadges={userBadges}
+                compact={true}
+              />
+            </View>
+          )}
+          
           <View style={cardStyles.cardFooter}>
             <Text style={cardStyles.statusText}>{getStatusLabel(story)}</Text>
             <Text style={cardStyles.dateText}>
@@ -156,7 +173,7 @@ const cardStyles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
-    marginBottom: 10,
+    marginBottom: 8,
   },
   storyTitle: {
     fontSize: 16,
@@ -180,6 +197,9 @@ const cardStyles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: 10,
+  },
+  creatorBadges: {
+    marginBottom: 8,
   },
   cardFooter: {
     flexDirection: 'row',

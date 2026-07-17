@@ -11,6 +11,8 @@ import { useRealtimeStory } from '../../../hooks/useRealtime'
 import { useCountdown } from '../../../hooks/useCountdown'
 import { Story, Paragraph } from '../../../types'
 import CommentSection from '../../../components/CommentSection'
+import BadgeSystem from '../../../components/BadgeSystem'
+import { useReputation } from '../../../hooks/useReputation'
 
 function TurnTimer({
   startedAt,
@@ -84,6 +86,13 @@ export default function StoryScreen() {
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [joining, setJoining] = useState(false)
+
+  // Récupérer les badges du créateur de l'histoire
+  const { 
+    badges: creatorBadges, 
+    userBadges: creatorUserBadges,
+    loading: creatorLoading 
+  } = useReputation(story?.creator_id || '')
 
   const loadAll = useCallback(async () => {
     if (!user) return
@@ -180,7 +189,6 @@ export default function StoryScreen() {
     const lines: string[] = []
     lines.push(`✒️ ${story.title}`)
     
-    // Ajouter l'URL de l'image de couverture si elle existe
     if (story.cover_url) {
       lines.push(`📷 Image: ${story.cover_url}`)
     }
@@ -281,7 +289,7 @@ export default function StoryScreen() {
             colors={['#5B4FCF']} tintColor="#5B4FCF" />
         }
       >
-        {/* Badges */}
+        {/* Badges de l'histoire */}
         <View style={styles.badges}>
           {story.blind_mode && (
             <View style={styles.badge}>
@@ -297,7 +305,22 @@ export default function StoryScreen() {
           </View>
         </View>
 
-        {/* ✨ NOUVEAU : Image de couverture */}
+        {/* Badges du créateur */}
+        {!creatorLoading && story.creator_id && (
+          <View style={styles.creatorBadgesContainer}>
+            <View style={styles.creatorBadgesHeader}>
+              <Ionicons name="ribbon-outline" size={14} color="#5B4FCF" />
+              <Text style={styles.creatorBadgesLabel}>Badges du créateur</Text>
+            </View>
+            <BadgeSystem 
+              badges={creatorBadges} 
+              userBadges={creatorUserBadges}
+              compact={true}
+            />
+          </View>
+        )}
+
+        {/* Image de couverture */}
         {story.cover_url && (
           <View style={styles.coverContainer}>
             <Image 
@@ -502,6 +525,25 @@ const styles = StyleSheet.create({
     paddingVertical: 6, borderRadius: 10
   },
   badgeText: { fontSize: 12, color: '#5B4FCF', fontWeight: '600' },
+  creatorBadgesContainer: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 12,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#E8E4F8',
+  },
+  creatorBadgesHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 8,
+  },
+  creatorBadgesLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#5B4FCF',
+  },
   coverContainer: {
     marginBottom: 16,
     borderRadius: 16,

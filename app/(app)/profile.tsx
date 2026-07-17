@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react'
 import {
   View, Text, TouchableOpacity, StyleSheet,
-  ActivityIndicator, ScrollView, Alert, Platform
+  ActivityIndicator, ScrollView, Alert
 } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
 import { supabase } from '../../lib/supabase'
 import { useAuthStore } from '../../store/authStore'
+import { useReputation } from '../../hooks/useReputation'
+import BadgeSystem from '../../components/BadgeSystem'
 
 type Stats = { total: number; won: number }
 
@@ -13,6 +15,15 @@ export default function Profile() {
   const { user, profile, signOut } = useAuthStore()
   const [stats, setStats] = useState<Stats>({ total: 0, won: 0 })
   const [loading, setLoading] = useState(true)
+  
+  // Utiliser le hook de réputation
+  const { 
+    stats: repStats, 
+    badges, 
+    userBadges, 
+    loading: repLoading,
+    checkAndAwardBadges 
+  } = useReputation(user?.id || '')
 
   useEffect(() => {
     if (!user) return
@@ -33,6 +44,13 @@ export default function Profile() {
     loadStats()
   }, [user])
 
+  // Vérifier les badges après le chargement
+  useEffect(() => {
+    if (!repLoading && repStats) {
+      checkAndAwardBadges()
+    }
+  }, [repLoading, repStats])
+
   const handleSignOut = () => {
     Alert.alert(
       'Déconnexion',
@@ -48,23 +66,16 @@ export default function Profile() {
     ? Math.round((stats.won / stats.total) * 100)
     : 0
 
-  const badges = [
-    { min: 1, icon: 'create-outline' as const, label: 'Premier pas', desc: 'Première contribution' },
-    { min: 5, icon: 'star' as const, label: 'Plume d\'argent', desc: '5 points de réputation' },
-    { min: 10, icon: 'trophy' as const, label: 'Plume d\'or', desc: '10 points de réputation' },
-    { min: 20, icon: 'ribbon' as const, label: 'Maître conteur', desc: '20 points de réputation' },
-  ]
-
-  const earned = badges.filter(b => (profile?.reputation ?? 0) >= b.min)
-  const locked = badges.filter(b => (profile?.reputation ?? 0) < b.min)
-
-  if (loading) {
+  if (loading || repLoading) {
     return (
       <View style={styles.centered}>
         <ActivityIndicator size="large" color="#5B4FCF" />
       </View>
     )
   }
+
+  const earnedCount = userBadges.length
+  const totalBadges = badges.length
 
   return (
     <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
@@ -79,11 +90,31 @@ export default function Profile() {
         </View>
         <Text style={styles.pseudo}>{profile?.pseudo ?? 'Utilisateur'}</Text>
         <Text style={styles.email}>{user?.email}</Text>
+        
+        {/* Réputation */}
         <View style={styles.repBadge}>
-          <Ionicons name="star" size={13} color="#5B4FCF" />
-          <Text style={styles.repText}>{profile?.reputation ?? 0} pts</Text>
+          <Ionicons name="star" size={16} color="#F59E0B" />
+          <Text style={styles.repText}>
+            {repStats?.reputation || 0} points de réputation
+          </Text>
+        </View>
+
+        {/* Badges count */}
+        <View style={styles.badgeCountContainer}>
+          <Ionicons name="ribbon-outline" size={14} color="#5B4FCF" />
+          <Text style={styles.badgeCountText}>
+            {earnedCount} badge{earnedCount !== 1 ? 's' : ''} débloqué{earnedCount !== 1 ? 's' : ''} sur {totalBadges}
+          </Text>
         </View>
       </View>
+
+      {/* Badges */}
+      {badges.length > 0 && (
+        <View style={styles.badgesSection}>
+          <Text style={styles.sectionTitle}>🏅 Badges</Text>
+          <BadgeSystem badges={badges} userBadges={userBadges} />
+        </View>
+      )}
 
       {/* Stats */}
       <View style={styles.statsSection}>
@@ -108,43 +139,32 @@ export default function Profile() {
         </View>
       </View>
 
-      {/* Badges obtenus */}
-      {earned.length > 0 && (
-        <View style={styles.badgesSection}>
-          <Text style={styles.sectionTitle}>Badges obtenus</Text>
-          <View style={styles.badgesGrid}>
-            {earned.map(badge => (
-              <View key={badge.label} style={styles.badgeCard}>
-                <View style={styles.badgeIconWrap}>
-                  <Ionicons name={badge.icon} size={24} color="#5B4FCF" />
-                </View>
-                <Text style={styles.badgeLabel}>{badge.label}</Text>
-                <Text style={styles.badgeDesc}>{badge.desc}</Text>
-              </View>
-            ))}
+      {/* Stats détaillées */}
+      <View style={styles.detailedStats}>
+        <Text style={styles.sectionTitle}>📊 Détails</Text>
+        <View style={styles.detailGrid}>
+          <View style={styles.detailItem}>
+            <Ionicons name="create-outline" size={18} color="#5B4FCF" />
+            <Text style={styles.detailLabel}>Histoires créées</Text>
+            <Text style={styles.detailValue}>{repStats?.stories_created || 0}</Text>
+          </View>
+          <View style={styles.detailItem}>
+            <Ionicons name="people-outline" size={18} color="#5B4FCF" />
+            <Text style={styles.detailLabel}>Participations</Text>
+            <Text style={styles.detailValue}>{repStats?.stories_participated || 0}</Text>
+          </View>
+          <View style={styles.detailItem}>
+            <Ionicons name="thumbs-up-outline" size={18} color="#5B4FCF" />
+            <Text style={styles.detailLabel}>Votes reçus</Text>
+            <Text style={styles.detailValue}>{repStats?.votes_received || 0}</Text>
+          </View>
+          <View style={styles.detailItem}>
+            <Ionicons name="chatbubble-outline" size={18} color="#5B4FCF" />
+            <Text style={styles.detailLabel}>Commentaires</Text>
+            <Text style={styles.detailValue}>{repStats?.comments_made || 0}</Text>
           </View>
         </View>
-      )}
-
-      {/* Badges verrouillés */}
-      {locked.length > 0 && (
-        <View style={styles.badgesSection}>
-          <Text style={styles.sectionTitle}>À débloquer</Text>
-          <View style={styles.badgesGrid}>
-            {locked.map(badge => (
-              <View key={badge.label} style={[styles.badgeCard, styles.badgeCardLocked]}>
-                <View style={[styles.badgeIconWrap, styles.badgeIconWrapLocked]}>
-                  <Ionicons name={badge.icon} size={24} color="#C4B8E8" />
-                </View>
-                <Text style={[styles.badgeLabel, styles.badgeLabelLocked]}>
-                  {badge.label}
-                </Text>
-                <Text style={styles.badgeDesc}>{badge.min} pts requis</Text>
-              </View>
-            ))}
-          </View>
-        </View>
-      )}
+      </View>
 
       {/* Déconnexion */}
       <TouchableOpacity style={styles.signOutBtn} onPress={handleSignOut} activeOpacity={0.8}>
@@ -161,7 +181,7 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F7F5FF' },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   hero: {
-    alignItems: 'center', paddingVertical: 40,
+    alignItems: 'center', paddingVertical: 32,
     backgroundColor: '#fff',
     borderBottomLeftRadius: 32, borderBottomRightRadius: 32,
     shadowColor: '#1A1033', shadowOffset: { width: 0, height: 4 },
@@ -186,16 +206,24 @@ const styles = StyleSheet.create({
   email: { fontSize: 14, color: '#9B8EC4', marginBottom: 12 },
   repBadge: {
     flexDirection: 'row', alignItems: 'center', gap: 6,
-    backgroundColor: '#F5F3FF', paddingHorizontal: 16,
+    backgroundColor: '#FFFBEB', paddingHorizontal: 16,
     paddingVertical: 7, borderRadius: 20,
-    borderWidth: 1, borderColor: '#E8E4F8',
+    borderWidth: 1, borderColor: '#FDE68A',
+    marginBottom: 8,
   },
-  repText: { fontSize: 14, fontWeight: '700', color: '#5B4FCF' },
-  statsSection: { padding: 20 },
+  repText: { fontSize: 14, fontWeight: '700', color: '#D97706' },
+  badgeCountContainer: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    backgroundColor: '#F5F3FF', paddingHorizontal: 14,
+    paddingVertical: 5, borderRadius: 16,
+  },
+  badgeCountText: { fontSize: 12, color: '#5B4FCF', fontWeight: '600' },
+  badgesSection: { padding: 20 },
   sectionTitle: {
     fontSize: 12.5, fontWeight: '700', color: '#9B8EC4',
     textTransform: 'uppercase', letterSpacing: 1, marginBottom: 12,
   },
+  statsSection: { paddingHorizontal: 20, paddingBottom: 8 },
   statsGrid: { flexDirection: 'row', gap: 10 },
   statCard: {
     flex: 1, backgroundColor: '#fff', borderRadius: 16,
@@ -210,24 +238,38 @@ const styles = StyleSheet.create({
   statNumberWhite: { color: '#fff' },
   statLabel: { fontSize: 11, color: '#9B8EC4', fontWeight: '600' },
   statLabelWhite: { color: 'rgba(255,255,255,0.8)' },
-  badgesSection: { paddingHorizontal: 20, paddingBottom: 8 },
-  badgesGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
-  badgeCard: {
-    backgroundColor: '#fff', borderRadius: 16, padding: 16,
-    alignItems: 'center', minWidth: '45%', flex: 1,
-    shadowColor: '#1A1033', shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05, shadowRadius: 8, elevation: 2,
+  detailedStats: { padding: 20 },
+  detailGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
   },
-  badgeIconWrap: {
-    width: 48, height: 48, borderRadius: 16,
-    backgroundColor: '#F5F3FF', alignItems: 'center', justifyContent: 'center',
-    marginBottom: 10,
+  detailItem: {
+    flex: 1,
+    minWidth: '45%',
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    shadowColor: '#1A1033',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 6,
+    elevation: 1,
   },
-  badgeIconWrapLocked: { backgroundColor: '#F7F5FF' },
-  badgeCardLocked: { backgroundColor: '#F7F5FF', borderWidth: 1, borderColor: '#E8E4F8' },
-  badgeLabel: { fontSize: 13, fontWeight: '700', color: '#1A1033', marginBottom: 4 },
-  badgeLabelLocked: { color: '#9B8EC4' },
-  badgeDesc: { fontSize: 11, color: '#9B8EC4', textAlign: 'center' },
+  detailLabel: {
+    flex: 1,
+    fontSize: 12,
+    color: '#9B8EC4',
+    fontWeight: '500',
+  },
+  detailValue: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#1A1033',
+  },
   signOutBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
     margin: 20, padding: 16, borderRadius: 16,

@@ -6,13 +6,15 @@ import {
 import { Ionicons } from '@expo/vector-icons'
 import { supabase } from '../lib/supabase'
 import { useAuthStore } from '../store/authStore'
+import { useReputation } from '../hooks/useReputation'
+import BadgeSystem from './BadgeSystem'
 
 interface Comment {
   id: string
   content: string
   user_id: string
   created_at: string
-  pseudo?: string  // Ajout du pseudo directement
+  pseudo?: string
 }
 
 interface CommentSectionProps {
@@ -25,12 +27,12 @@ export default function CommentSection({ storyId }: CommentSectionProps) {
   const [newComment, setNewComment] = useState('')
   const [loading, setLoading] = useState(true)
   const [sending, setSending] = useState(false)
+  const [selectedUserId, setSelectedUserId] = useState<string | null>(null)
 
   const loadComments = async () => {
     console.log('📥 Chargement des commentaires pour:', storyId)
     
     try {
-      // 1. D'abord, récupérer les commentaires
       const { data: commentsData, error: commentsError } = await supabase
         .from('comments')
         .select('id, content, user_id, created_at')
@@ -49,7 +51,6 @@ export default function CommentSection({ storyId }: CommentSectionProps) {
         return
       }
 
-      // 2. Récupérer les pseudos des utilisateurs
       const userIds = commentsData.map(c => c.user_id)
       const { data: profilesData, error: profilesError } = await supabase
         .from('profiles')
@@ -58,10 +59,8 @@ export default function CommentSection({ storyId }: CommentSectionProps) {
 
       if (profilesError) {
         console.error('❌ Erreur chargement profils:', profilesError)
-        // On continue quand même avec les commentaires
       }
 
-      // 3. Fusionner les données
       const profilesMap: Record<string, string> = {}
       if (profilesData) {
         profilesData.forEach(p => {
@@ -89,7 +88,6 @@ export default function CommentSection({ storyId }: CommentSectionProps) {
       loadComments()
     }
 
-    // Écouter les nouveaux commentaires en temps réel
     const channel = supabase
       .channel(`comments-${storyId}`)
       .on('postgres_changes', {
@@ -142,10 +140,7 @@ export default function CommentSection({ storyId }: CommentSectionProps) {
 
       console.log('✅ Commentaire envoyé')
       setNewComment('')
-      
-      // Recharger les commentaires
       await loadComments()
-      
       Alert.alert('Succès', 'Commentaire ajouté !')
 
     } catch (error) {
@@ -201,6 +196,52 @@ export default function CommentSection({ storyId }: CommentSectionProps) {
     })
   }
 
+  // Composant CommentItem avec badges
+  const CommentItem = ({ comment, isOwn }: { comment: Comment, isOwn: boolean }) => {
+    const { badges, userBadges, loading: badgeLoading } = useReputation(comment.user_id)
+    
+    return (
+      <View style={[styles.commentCard, isOwn && styles.commentCardOwn]}>
+        <View style={styles.commentHeader}>
+          <View style={styles.commentAuthorContainer}>
+            <View style={styles.commentAvatar}>
+              <Text style={styles.commentAvatarText}>
+                {comment.pseudo?.[0]?.toUpperCase() ?? '?'}
+              </Text>
+            </View>
+            <Text style={styles.commentAuthor}>
+              {comment.pseudo || 'Anonyme'}
+            </Text>
+          </View>
+          <View style={styles.commentRight}>
+            <Text style={styles.commentDate}>
+              {formatDate(comment.created_at)}
+            </Text>
+            {isOwn && (
+              <TouchableOpacity
+                onPress={() => handleDeleteComment(comment.id)}
+                style={styles.deleteBtn}
+                hitSlop={8}
+              >
+                <Ionicons name="trash-outline" size={14} color="#EF4444" />
+              </TouchableOpacity>
+            )}
+          </View>
+        </View>
+        <Text style={styles.commentContent}>{comment.content}</Text>
+        {!badgeLoading && badges.length > 0 && (
+          <View style={styles.commentBadges}>
+            <BadgeSystem 
+              badges={badges} 
+              userBadges={userBadges}
+              compact={true}
+            />
+          </View>
+        )}
+      </View>
+    )
+  }
+
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
@@ -223,41 +264,12 @@ export default function CommentSection({ storyId }: CommentSectionProps) {
         keyExtractor={item => item.id}
         inverted
         scrollEnabled={false}
-        renderItem={({ item }) => {
-          const isOwn = item.user_id === user?.id
-          
-          return (
-            <View style={[styles.commentCard, isOwn && styles.commentCardOwn]}>
-              <View style={styles.commentHeader}>
-                <View style={styles.commentAuthorContainer}>
-                  <View style={styles.commentAvatar}>
-                    <Text style={styles.commentAvatarText}>
-                      {item.pseudo?.[0]?.toUpperCase() ?? '?'}
-                    </Text>
-                  </View>
-                  <Text style={styles.commentAuthor}>
-                    {item.pseudo || 'Anonyme'}
-                  </Text>
-                </View>
-                <View style={styles.commentRight}>
-                  <Text style={styles.commentDate}>
-                    {formatDate(item.created_at)}
-                  </Text>
-                  {isOwn && (
-                    <TouchableOpacity
-                      onPress={() => handleDeleteComment(item.id)}
-                      style={styles.deleteBtn}
-                      hitSlop={8}
-                    >
-                      <Ionicons name="trash-outline" size={14} color="#EF4444" />
-                    </TouchableOpacity>
-                  )}
-                </View>
-              </View>
-              <Text style={styles.commentContent}>{item.content}</Text>
-            </View>
-          )
-        }}
+        renderItem={({ item }) => (
+          <CommentItem 
+            comment={item} 
+            isOwn={item.user_id === user?.id}
+          />
+        )}
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
             <Ionicons name="chatbubble-ellipses-outline" size={32} color="#C4B8E8" />
@@ -385,6 +397,10 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#1A1033',
     lineHeight: 20,
+    marginLeft: 36,
+  },
+  commentBadges: {
+    marginTop: 6,
     marginLeft: 36,
   },
   inputContainer: {
