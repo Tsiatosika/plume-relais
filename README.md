@@ -190,7 +190,7 @@ plume-relais/
 
 ```bash
 # 1. Cloner le projet
-git clone <url-du-repo>
+git clone https://github.com/Tsiatosika/plume-relais
 cd plume-relais
 
 # 2. Installer les dépendances
@@ -220,7 +220,7 @@ Rendez-vous sur [supabase.com](https://supabase.com) et créez un nouveau projet
 Dans `lib/supabase.ts` :
 
 ```typescript
-const SUPABASE_URL = 'https://votre-projet.supabase.co'
+const SUPABASE_URL = 'https://hklqcjmokmehkczahjyl.supabase.co'
 const SUPABASE_ANON_KEY = 'votre-clé-anonyme'
 ```
 
@@ -291,4 +291,4 @@ Ce projet est sous licence MIT. Voir le fichier [LICENSE](LICENSE) pour plus de 
 
 ## 📞 Contact
 
-- **Projet** : [GitHub](https://github.com/votre-repo)
+- **Projet** : [GitHub](https://github.com/Tsiatosika/plume-relais)
